@@ -1,7 +1,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 module Actions (
-    Actions.compare
+    status
   , push
   , pull
   , delete
@@ -16,12 +16,12 @@ import FileUtils
 
 import System.OsPath (OsPath, (</>), osp, takeDirectory)
 
--- | Compare the files in production to staging
-compare
+-- | Compare production to staging.
+status
     :: OsPath       -- ^ staging base path
     -> DirTree ()   -- ^ staging tree
     -> IO Bool
-compare = visitFiles checker
+status = visitFiles checker
     where   checker :: OsPath -> OsPath -> IO Bool
             checker sp pp = do
                 e <- doesFileExist pp

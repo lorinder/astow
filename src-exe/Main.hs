@@ -7,12 +7,12 @@ import System.OsPath (encodeUtf)
 import Control.Monad
 import Options.Applicative
 
-import Actions (compare, push, pull, delete, symlink)
+import Actions (status, push, pull, delete, symlink)
 import DirTree
 
 data CmdLine = CmdLine {
         -- Actionflags
-        clCompare           :: Bool
+        clStatus            :: Bool
       , clPush              :: Bool
       , clPull              :: Bool
       , clDelete            :: Bool
@@ -25,7 +25,7 @@ data CmdLine = CmdLine {
 cmdLineParser :: Parser CmdLine
 cmdLineParser = CmdLine
     <$> flag False True (
-            long "compare"
+            long "status"
             <> help "Compare staging to production tree" )
     <*> flag False True (
             long "push"
@@ -43,17 +43,17 @@ cmdLineParser = CmdLine
             <> help "Symlink files in production to staging" )
     <*> many (argument str (metavar "DIRS..."))
 
-data Action = Compare | Push | Pull | Delete | Link deriving(Show)
+data Action = Status | Push | Pull | Delete | Link deriving(Show)
 
 getAction :: CmdLine -> Either String Action
-getAction cl = getAction' (clCompare cl) (clPush cl) (clPull cl)
+getAction cl = getAction' (clStatus cl) (clPush cl) (clPull cl)
                 (clDelete cl) (clSymlink cl)
-    where   getAction' True  False False False False = Right Compare
+    where   getAction' True  False False False False = Right Status
             getAction' False True  False False False = Right Push
             getAction' False False True  False False = Right Pull
             getAction' False False False True  False = Right Delete
             getAction' False False False False True  = Right Link
-            getAction' False False False False False = Right Compare -- Default
+            getAction' False False False False False = Right Status -- Default
             getAction' _ _ _ _ _ = Left "Ambiguous action specified."
 
 main :: IO ()
@@ -73,7 +73,7 @@ main = do
         d <- encodeUtf ds
         tr <- getDirTree d
         case act of
-            Compare -> Actions.compare d tr
+            Status -> status d tr
             Push -> push d tr
             Pull -> pull d tr
             Delete -> delete d tr
