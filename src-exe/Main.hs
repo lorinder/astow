@@ -82,8 +82,7 @@ main = do
     where
         opts = info (helper <*> cmdLineParser)
             ( fullDesc
-                <> progDesc ("Minimal alternative to the \"stow\"; utility.  "
-                    ++ "This version is able to copy files instead of "
-                    ++ "creating symbolic links.  It therefore also works "
-                    ++ "when symlinks are unavailable or unsuitable.")
-                <> header "altstow - minimal alternative to stow")
+                <> progDesc ("Minimal alternative to the \"stow\" utility.  "
+                    ++ "Manages a union of file system trees.  Unlike stow, "
+                    ++ "files are copied by default, instead of a symlinked.")
+                <> header "astow - minimal alternative to stow")
