@@ -1,12 +1,15 @@
 module DirTree (
     DirTree(..)
   , getDirTree
+  , modifyAttribsM
   , modifyAttribs
   , walk
+  , MergeFun
   , merge
 ) where
 
 import Control.Monad
+import Data.Functor.Identity
 import Data.List
 
 import qualified System.Directory.OsPath as D
@@ -22,11 +25,7 @@ rootName :: DirTree a -> OsPath
 rootName (File x _) = x
 rootName (Dir x _) = x
 
--- Typical typeclasses
---
--- XXX:  While they work, they only act on the attributes, not the
--- names, and are therefor not that good a fit for many uses of the
--- tree.
+-- | Standard typeclasses for DirTree.
 
 instance Functor DirTree where
     fmap :: (a -> b) -> DirTree a -> DirTree b
@@ -43,39 +42,65 @@ flattenAttribs (Dir _ xs) = concatMap flattenAttribs xs
 
 -- IO functions
 
-getDirTree :: OsPath -> IO (DirTree ())
-getDirTree base = getSubTree mempty mempty
-    where   getSubTree :: OsPath -> OsPath -> IO (DirTree ())
-            getSubTree location subdir = do
-                let bloc = base </> location
+-- | Create a DirTree from a file system tree.
+--
+-- Walks a real file system tree and creates a DirTree from it,
+-- assigning a fixed attribute to each node.
+getDirTree
+    :: OsPath           -- ^ root path of the tree
+    -> a                -- ^ attribute for nodes.
+    -> IO (DirTree a)
+getDirTree base = getDirTree' base mempty
+    where   getDirTree'
+                :: OsPath           -- ^ root of the subtree
+                -> OsPath           -- ^ file within the root to create tree for
+                -> a                -- ^ attribute to assign
+                -> IO (DirTree a)   -- ^ resulting dirtree
+            getDirTree' location subdir val' = do
+                let bloc = location
                 fileNames <- sort <$> D.listDirectory (bloc </> subdir)
                 files <- forM fileNames (\fn -> do
                     isDir <- D.doesDirectoryExist $ bloc </> subdir </> fn
                     if isDir then 
-                        getSubTree (location </> subdir) fn
+                        getDirTree' (location </> subdir) fn val'
                     else
-                        return $ File fn ()
+                        return $ File fn val'
                     )
                 return $ Dir subdir files
 
--- Attribute modification.
+-- | Modify tree attributes.
 --
--- Acts in a monad so that error handling or IO in particular can be
--- easily integrated.
+--   For each node in a tree, applies a modifier function taking the
+--   node's path and its attribute to compute a new attribute value.
+modifyAttribs
+    :: (OsPath -> a -> b)
+    -> DirTree a
+    -> DirTree b
+modifyAttribs f orig =
+    let Identity r = modifyAttribsM (\p x -> Identity $ f p x) orig
+    in  r
 
-modifyAttribs :: (Monad m)
-    => OsPath                               -- ^ Current path
-    -> (OsPath -> a -> m c)                 -- ^ modifier func
-    -> DirTree a                            -- ^ the tree to take
-    -> m (DirTree c)
-modifyAttribs path f (File name attr) = do
-    attr' <- f (path </> name) attr
-    return $ File name attr'
-modifyAttribs path f (Dir name xs) = do
-    let path' = path </> name
-    let mxs = map (modifyAttribs path' f) xs
-    l <- sequence mxs
-    return $ Dir name l
+-- | Modify tree attributes, monadic version.
+--
+--   'modifyAttribs' with a monadic modifier function.
+modifyAttribsM :: (Monad m)
+    => (OsPath -> a -> m b)                 -- ^ modifier function
+    -> DirTree a                            -- ^ the tree to modify
+    -> m (DirTree b)                        -- ^ resulting output
+modifyAttribsM = modifyAttribsM' mempty
+    where   modifyAttribsM' :: (Monad m)
+                => OsPath                   -- ^ root path
+                -> (OsPath -> a -> m b)     -- ^ modifier func
+                -> DirTree a                -- ^ the tree to take
+                -> m (DirTree b)
+            modifyAttribsM' path f (File name attr) = do
+                attr' <- f (path </> name) attr
+                return $ File name attr'
+            modifyAttribsM' path f (Dir name xs) = do
+                let path' = path </> name
+                let mxs = map (modifyAttribsM' path' f) xs
+                l <- sequence mxs
+                return $ Dir name l
 
 walk :: (Monad m)
     => OsPath                               -- ^ base path
@@ -89,8 +114,25 @@ walk path f (Dir name xs) = do
     l <- mapM (walk (path </> name) f) xs
     return $ concat l
 
+-- | Attribute merger function.
+type MergeFun a b c =
+    OsPath                                  -- ^ Path being merged
+    -> Maybe a                              -- ^ left attribute if any
+    -> Maybe b                              -- ^ right attribute if any
+    -> Either String c                      -- ^ combined attribute or error
+
+-- | Merge two DirTrees.
+merge :: DirTree a                          -- ^ left tree
+      -> DirTree b                          -- ^ right tree
+      -> MergeFun a b c                     -- ^ attribute merger
+      -> Either String (DirTree c)          -- ^ combined tree
+merge (Dir _ vl) (Dir _ vr) f = do
+    l <- mergeLists mempty vl vr f
+    pure $ Dir mempty l
+merge _ _ _ = Left "Invalid tree passed to merge function"
+
 --
--- merge functionality
+-- merge helper functions functionality
 --
 
 leftf
@@ -114,10 +156,10 @@ mergeLists
     -> (OsPath -> Maybe a -> Maybe b -> Either String c)  -- ^ file attribute merger
     -> Either String [DirTree c]
 mergeLists _ [] [] _ = return []
-mergeLists path xs [] f =
-    traverse (modifyAttribs path (leftf f)) xs
-mergeLists path [] ys f =
-    traverse (modifyAttribs path (rightf f)) ys
+mergeLists _ xs [] f =
+    traverse (modifyAttribsM $ leftf f) xs
+mergeLists _ [] ys f =
+    traverse (modifyAttribsM (rightf f)) ys
 mergeLists path (x:xs) (y:ys) f = 
     let nx = rootName x
         ny = rootName y
@@ -126,15 +168,15 @@ mergeLists path (x:xs) (y:ys) f =
             rest <- mergeLists path xs ys f
             return (m:rest)
         else if nx < ny then do
-            ma <- modifyAttribs path (leftf f) x
+            ma <- modifyAttribsM (leftf f) x
             rest <- mergeLists path xs (y:ys) f
             return (ma:rest)
         else do
-            ma <- modifyAttribs path (rightf f) y
+            ma <- modifyAttribsM (rightf f) y
             rest <- mergeLists path (x:xs) ys f
             return (ma:rest)
 
--- Merge two nodes with identical names.
+-- | Merge two nodes with identical names.
 mergeNode
     :: OsPath                                   -- ^ base path
     -> DirTree a
@@ -149,12 +191,3 @@ mergeNode path (Dir name xs) (Dir _ ys) f = do
     pure $ Dir name ents
 mergeNode path x _ _ =
     Left $ "Node type mismatch for " ++ osPathToString (path </> rootName x)
-
-merge :: DirTree a
-      -> DirTree b
-      -> (OsPath -> Maybe a -> Maybe b -> Either String c)
-      -> Either String (DirTree c)
-merge (Dir _ vl) (Dir _ vr) f = do
-    l <- mergeLists mempty vl vr f
-    pure $ Dir mempty l
-merge _ _ _ = Left "Invalid tree passed to merge function"

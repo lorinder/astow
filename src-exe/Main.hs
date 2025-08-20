@@ -80,7 +80,7 @@ main = do
         runCmd actionFunc files = do
             results <- forM files (\fn -> do
                 d <- encodeUtf fn
-                tr <- getDirTree d
+                tr <- getDirTree d ()
                 actionFunc d tr
                 )
             return $ all id results
