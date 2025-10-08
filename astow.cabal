@@ -41,7 +41,7 @@ executable astow
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     build-depends:
-        base ^>=4.19
+        base >=4.19 && <5
       , bytestring
       , directory
       , filepath
