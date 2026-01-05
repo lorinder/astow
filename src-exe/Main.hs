@@ -1,8 +1,7 @@
 module Main where
 
 import System.Exit
-import System.IO
-import System.OsPath (encodeUtf)
+import System.OsPath (encodeUtf, OsPath)
 
 import Control.Monad
 import Options.Applicative
@@ -10,75 +9,63 @@ import Options.Applicative
 import Actions (status, push, pull, delete, symlink)
 import DirTree
 
+data Command =
+      CmdStatus     [String]
+    | CmdPush       [String]
+    | CmdPull       [String]
+    | CmdSymlink    [String]
+    | CmdDelete     [String]
+    deriving (Show)
+
 data CmdLine = CmdLine {
-        -- Actionflags
-        clStatus            :: Bool
-      , clPush              :: Bool
-      , clPull              :: Bool
-      , clDelete            :: Bool
-      , clSymlink           :: Bool
-    
-        -- Directories to operate on
-      , clDirs              :: [String]
+        clCmd               :: Command
     } deriving (Show)
 
+statusParser :: Parser Command
+statusParser = CmdStatus <$> many (argument str (metavar "DIRS..."))
+
+pushParser :: Parser Command
+pushParser = CmdPush <$> many (argument str (metavar "DIRS..."))
+
+pullParser :: Parser Command
+pullParser = CmdPull <$> many (argument str (metavar "DIRS..."))
+
+symlinkParser :: Parser Command
+symlinkParser = CmdSymlink <$> many (argument str (metavar "DIRS..."))
+
+deleteParser :: Parser Command
+deleteParser = CmdDelete <$> many (argument str (metavar "DIRS..."))
+
 cmdLineParser :: Parser CmdLine
-cmdLineParser = CmdLine
-    <$> flag False True (
-            long "status"
-            <> help "Compare staging to production tree" )
-    <*> flag False True (
-            long "push"
-            <> help "Push (copy) staging tree to production" )
-    <*> flag False True (
-            long "pull"
-            <> help "Pull (copy) staging tree from production" )
-    <*> flag False True (
-            long "delete"
-            <> short 'D'
-            <> help "Remove files from production" )
-    <*> flag False True (
-            long "symlink"
-            <> short 'S'
-            <> help "Symlink files in production to staging" )
-    <*> many (argument str (metavar "DIRS..."))
-
-data Action = Status | Push | Pull | Delete | Link deriving(Show)
-
-getAction :: CmdLine -> Either String Action
-getAction cl = getAction' (clStatus cl) (clPush cl) (clPull cl)
-                (clDelete cl) (clSymlink cl)
-    where   getAction' True  False False False False = Right Status
-            getAction' False True  False False False = Right Push
-            getAction' False False True  False False = Right Pull
-            getAction' False False False True  False = Right Delete
-            getAction' False False False False True  = Right Link
-            getAction' False False False False False = Right Status -- Default
-            getAction' _ _ _ _ _ = Left "Ambiguous action specified."
+cmdLineParser = CmdLine <$> subparser
+    ( command "status"
+        (info statusParser (progDesc "Sync status display"))
+    <> command "push"
+        (info pushParser (progDesc "Push (copy) staging files to live"))
+    <> command "pull"
+        (info pullParser (progDesc "Pull (copy) staging files from live"))
+    <> command "symlink"
+        (info symlinkParser (progDesc "Symlink staging files to live"))
+    <> command "delete"
+        (info deleteParser (progDesc "Remove files from live"))
+    )
 
 main :: IO ()
 main = do
     -- Scan the command line
     cl <- execParser opts
-    let act_m = getAction cl
-    act <- case act_m of
-                Left err -> do
-                    hPutStrLn stderr $ "Error: " ++ err
-                    exitWith $ ExitFailure 1
-                Right a -> return a
     
-    -- Process each provided dir
-    forM_ (clDirs cl) (\ds -> do
-        putStrLn $ "Processing: " ++ ds
-        d <- encodeUtf ds
-        tr <- getDirTree d
-        case act of
-            Status -> status d tr
-            Push -> push d tr
-            Pull -> pull d tr
-            Delete -> delete d tr
-            Link -> symlink d tr
-        )
+    -- process
+    r <- case clCmd cl of
+        CmdStatus files -> runCmd status files
+        CmdPush files -> runCmd push files
+        CmdPull files -> runCmd pull files
+        CmdSymlink files -> runCmd symlink files
+        CmdDelete files -> runCmd delete files
+
+    -- Return
+    exitWith (if r then ExitSuccess else ExitFailure 1)
+
     where
         opts = info (helper <*> cmdLineParser)
             ( fullDesc
@@ -86,3 +73,14 @@ main = do
                     ++ "Manages a union of file system trees.  Unlike stow, "
                     ++ "files are copied by default, instead of a symlinked.")
                 <> header "astow - minimal alternative to stow")
+        runCmd 
+            :: (OsPath -> DirTree () -> IO Bool)        -- ^ action
+            -> [String]                                 -- ^ file args
+            -> IO Bool
+        runCmd actionFunc files = do
+            results <- forM files (\fn -> do
+                d <- encodeUtf fn
+                tr <- getDirTree d
+                actionFunc d tr
+                )
+            return $ all id results
