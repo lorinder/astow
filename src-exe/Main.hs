@@ -6,7 +6,7 @@ import System.OsPath (encodeUtf, OsPath)
 import Control.Monad
 import Options.Applicative
 
-import Actions (status, push, pull, delete, symlink)
+import Actions (status, push, pull, delete, symlink, manifest)
 import DirTree
 
 data Command =
@@ -15,6 +15,7 @@ data Command =
     | CmdPull       [String]
     | CmdSymlink    [String]
     | CmdDelete     [String]
+    | CmdManifest   [String]
     deriving (Show)
 
 data CmdLine = CmdLine {
@@ -36,6 +37,9 @@ symlinkParser = CmdSymlink <$> many (argument str (metavar "DIRS..."))
 deleteParser :: Parser Command
 deleteParser = CmdDelete <$> many (argument str (metavar "DIRS..."))
 
+manifestParser :: Parser Command
+manifestParser = CmdManifest <$> many (argument str (metavar "DIRS..."))
+
 cmdLineParser :: Parser CmdLine
 cmdLineParser = CmdLine <$> subparser
     ( command "status"
@@ -48,6 +52,8 @@ cmdLineParser = CmdLine <$> subparser
         (info symlinkParser (progDesc "Symlink staging files to live"))
     <> command "delete"
         (info deleteParser (progDesc "Remove files from live"))
+    <> command "manifest"
+        (info manifestParser (progDesc "Show files manifest"))
     )
 
 main :: IO ()
@@ -62,6 +68,7 @@ main = do
         CmdPull files -> runCmd pull files
         CmdSymlink files -> runCmd symlink files
         CmdDelete files -> runCmd delete files
+        CmdManifest files -> runCmd manifest files
 
     -- Return
     exitWith (if r then ExitSuccess else ExitFailure 1)

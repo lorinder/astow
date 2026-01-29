@@ -6,6 +6,7 @@ module Actions (
   , pull
   , delete
   , symlink
+  , manifest
 ) where
 
 import Control.Monad
@@ -101,7 +102,7 @@ delete = visitFiles deleter
                     removeFile pp
                 return True
 
--- | Symlink files in production to stagin
+-- | Symlink files in production to staging.
 symlink
     :: OsPath       -- ^ staging base path
     -> DirTree ()
@@ -115,6 +116,16 @@ symlink = visitFiles linker
                 createFileLink spAbs pp
                 return True
     
+-- | Display a list of all files in a subpath.
+manifest
+    :: OsPath       -- ^ staging base path
+    -> DirTree ()
+    -> IO Bool
+manifest = visitFiles printer
+    where   printer :: OsPath -> OsPath -> IO Bool
+            printer sp _ = do
+                print sp
+                return True
 
 -- Internal helper functions.
 
