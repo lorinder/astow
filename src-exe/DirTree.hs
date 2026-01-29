@@ -4,7 +4,10 @@ module DirTree (
   , modifyAttribsM
   , modifyAttribs
   , walk
+
+-- * Merging
   , MergeFun
+  , LeftRightAttribs(..)
   , merge
 ) where
 
@@ -114,11 +117,19 @@ walk path f (Dir name xs) = do
     l <- mapM (walk (path </> name) f) xs
     return $ concat l
 
+-- | Node attributes for merging trees.
+--
+-- Merging of a file node means that it must be present in either the
+-- left tree, the right tree, or both.
+data LeftRightAttribs a b
+    = LeftOnly a
+      | RightOnly b
+      | Both a b
+
 -- | Attribute merger function.
 type MergeFun a b c =
     OsPath                                  -- ^ Path being merged
-    -> Maybe a                              -- ^ left attribute if any
-    -> Maybe b                              -- ^ right attribute if any
+    -> LeftRightAttribs a b                 -- ^ Attributes
     -> Either String c                      -- ^ combined attribute or error
 
 -- | Merge two DirTrees.
@@ -135,31 +146,17 @@ merge _ _ _ = Left "Invalid tree passed to merge function"
 -- merge helper functions functionality
 --
 
-leftf
-    :: (OsPath -> Maybe a -> Maybe b -> Either String c)
-    -> OsPath
-    -> a
-    -> Either String c
-leftf f path x = f path (Just x) Nothing
-
-rightf
-    :: (OsPath -> Maybe a -> Maybe b -> Either String c)
-    -> OsPath
-    -> b
-    -> Either String c
-rightf f path y = f path Nothing (Just y)
-
 mergeLists
-    :: OsPath                                   -- ^ base path
-    -> [DirTree a]                              -- ^ left list
-    -> [DirTree b]                              -- ^ right list
-    -> (OsPath -> Maybe a -> Maybe b -> Either String c)  -- ^ file attribute merger
+    :: OsPath                               -- ^ base path
+    -> [DirTree a]                          -- ^ left list
+    -> [DirTree b]                          -- ^ right list
+    -> MergeFun a b c                       -- ^ file attribute merger
     -> Either String [DirTree c]
 mergeLists _ [] [] _ = return []
 mergeLists _ xs [] f =
-    traverse (modifyAttribsM $ leftf f) xs
+    traverse (modifyAttribsM $ \p x' -> f p (LeftOnly x')) xs
 mergeLists _ [] ys f =
-    traverse (modifyAttribsM (rightf f)) ys
+    traverse (modifyAttribsM $ \p y' -> f p (RightOnly y')) ys
 mergeLists path (x:xs) (y:ys) f = 
     let nx = rootName x
         ny = rootName y
@@ -168,11 +165,11 @@ mergeLists path (x:xs) (y:ys) f =
             rest <- mergeLists path xs ys f
             return (m:rest)
         else if nx < ny then do
-            ma <- modifyAttribsM (leftf f) x
+            ma <- modifyAttribsM (\p x' -> f p (LeftOnly x')) x
             rest <- mergeLists path xs (y:ys) f
             return (ma:rest)
         else do
-            ma <- modifyAttribsM (rightf f) y
+            ma <- modifyAttribsM (\p y' -> f p (RightOnly y')) y
             rest <- mergeLists path (x:xs) ys f
             return (ma:rest)
 
@@ -181,10 +178,10 @@ mergeNode
     :: OsPath                                   -- ^ base path
     -> DirTree a
     -> DirTree b
-    -> (OsPath -> Maybe a -> Maybe b -> Either String c)
+    -> MergeFun a b c
     -> Either String (DirTree c)
 mergeNode path (File name vl) (File _ vr) f = do
-    ma <- f (path </> name) (Just vl) (Just vr)
+    ma <- f (path </> name) (Both vl vr)
     pure $ File name ma
 mergeNode path (Dir name xs) (Dir _ ys) f = do
     ents <- mergeLists path xs ys f

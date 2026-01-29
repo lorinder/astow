@@ -1,7 +1,10 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 module Actions (
-    status
+    RootedDirTree(..)
+
+-- * actions to perform
+  , status
   , push
   , pull
   , delete
@@ -17,10 +20,15 @@ import FileUtils
 
 import System.OsPath (OsPath, (</>), osp, takeDirectory)
 
+-- | DirTree together with a rooting path.
+data RootedDirTree a = RootedDirTree {
+        rdtRoot         :: OsPath
+      , rdtTree         :: DirTree a
+    }
+
 -- | Compare production to staging.
 status
-    :: OsPath       -- ^ staging base path
-    -> DirTree ()   -- ^ staging tree
+    :: [RootedDirTree ()]
     -> IO Bool
 status = visitFiles checker
     where   checker :: OsPath -> OsPath -> IO Bool
@@ -41,10 +49,9 @@ status = visitFiles checker
 --   files different in production are overwritten with the updated
 --   version.  Unchanged files are left alone.
 push
-    :: OsPath       -- ^ staging base path
-    -> DirTree ()   -- ^ staging tree
+    :: [RootedDirTree ()]
     -> IO Bool
-push = visitFiles pusher 
+push = visitFiles pusher
     where   pusher :: OsPath -> OsPath -> IO Bool
             pusher sp pp = do
                 e <- doesFileExist pp
@@ -70,10 +77,9 @@ push = visitFiles pusher
 --   in the staging area.  Thus newly added files cannot be pulled
 --   automatically but need to be manually copied into staging.
 pull
-    :: OsPath       -- ^ staging base path
-    -> DirTree ()   -- ^ staging tree
+    :: [RootedDirTree ()]
     -> IO Bool
-pull = visitFiles puller 
+pull = visitFiles puller
     where   puller :: OsPath -> OsPath -> IO Bool
             puller sp pp = do
                 doDelete <- not <$> doesFileExist pp
@@ -81,7 +87,7 @@ pull = visitFiles puller
                         return False
                     else do
                         not <$> filesHaveSameContent sp pp
-                if doDelete then do 
+                if doDelete then do
                     removeFile sp
                 else when doCopy $ do
                     copyFileWithMetadata pp sp
@@ -91,8 +97,7 @@ pull = visitFiles puller
 --
 --   Files that exist in staging are deleted from production.
 delete
-    :: OsPath       -- ^ staging base path
-    -> DirTree ()
+    :: [RootedDirTree ()]
     -> IO Bool
 delete = visitFiles deleter
     where   deleter :: OsPath -> OsPath -> IO Bool
@@ -104,8 +109,7 @@ delete = visitFiles deleter
 
 -- | Symlink files in production to staging.
 symlink
-    :: OsPath       -- ^ staging base path
-    -> DirTree ()
+    :: [RootedDirTree ()]
     -> IO Bool
 symlink = visitFiles linker
     where   linker :: OsPath -> OsPath -> IO Bool
@@ -118,8 +122,7 @@ symlink = visitFiles linker
     
 -- | Display a list of all files in a subpath.
 manifest
-    :: OsPath       -- ^ staging base path
-    -> DirTree ()
+    :: [RootedDirTree ()]
     -> IO Bool
 manifest = visitFiles printer
     where   printer :: OsPath -> OsPath -> IO Bool
@@ -135,11 +138,23 @@ manifest = visitFiles printer
 --   and the other one for the corresponding file in production.
 --
 --   Only proper files are visited, not directories.
+visitFilesSingle
+    :: (OsPath -> OsPath -> IO Bool)        -- ^ visitor (action)
+    -> RootedDirTree ()                     -- ^ the tree to visit
+    -> IO Bool
+visitFilesSingle f rdt = do
+    let tr = rdtTree rdt
+        root = rdtRoot rdt
+    r <- walk mempty (\p () -> f (root </> p) ([osp|..|] </> p)) tr
+    return $ any not r
+
+-- | Visit each file in multiple rooted trees.
+--
+-- Variant of 'visitFilesSingle' that takes a list of trees instead.
 visitFiles
     :: (OsPath -> OsPath -> IO Bool)        -- ^ visitor (action)
-    -> OsPath                               -- ^ staging base path
-    -> DirTree ()                           -- ^ the tree
+    -> [RootedDirTree ()]                   -- ^ the trees
     -> IO Bool
-visitFiles f base tr = do
-    r <- walk mempty (\p _ -> f (base </> p) ([osp|..|] </> p)) tr
+visitFiles f trees = do
+    r <- mapM (visitFilesSingle f) trees 
     return $ any not r

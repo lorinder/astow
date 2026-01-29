@@ -1,12 +1,12 @@
 module Main where
 
 import System.Exit
-import System.OsPath (encodeUtf, OsPath)
+import System.OsPath (encodeUtf)
 
 import Control.Monad
 import Options.Applicative
 
-import Actions (status, push, pull, delete, symlink, manifest)
+import Actions (RootedDirTree(..), status, push, pull, delete, symlink, manifest)
 import DirTree
 
 data Command =
@@ -76,18 +76,18 @@ main = do
     where
         opts = info (helper <*> cmdLineParser)
             ( fullDesc
+                <> header "astow - minimal alternative to stow"
                 <> progDesc ("Minimal alternative to the \"stow\" utility.  "
                     ++ "Manages a union of file system trees.  Unlike stow, "
-                    ++ "files are copied by default, instead of a symlinked.")
-                <> header "astow - minimal alternative to stow")
+                    ++ "files are copied by default, instead of a symlinked."))
         runCmd 
-            :: (OsPath -> DirTree () -> IO Bool)        -- ^ action
-            -> [String]                                 -- ^ file args
+            :: ([RootedDirTree ()] -> IO Bool)  -- ^ action
+            -> [String]                     -- ^ file args
             -> IO Bool
         runCmd actionFunc files = do
-            results <- forM files (\fn -> do
+            trees <- forM files (\fn -> do
                 d <- encodeUtf fn
                 tr <- getDirTree d ()
-                actionFunc d tr
+                return $ RootedDirTree d tr
                 )
-            return $ all id results
+            actionFunc trees
