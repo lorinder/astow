@@ -36,6 +36,7 @@ executable astow
     other-modules:
         Actions
         DirTree
+        Fallible
         FileUtils
         FsOps
 
@@ -47,8 +48,10 @@ executable astow
       , directory
       , filepath
       , file-io
+      , mtl
       , optparse-applicative
       , os-string
+      , transformers
     hs-source-dirs:   src-exe
 
 -- vim:et:ts=4:sw=4
