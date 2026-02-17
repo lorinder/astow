@@ -3,7 +3,7 @@ module DirTree (
   , getDirTree
   , modifyAttribsM
   , modifyAttribs
-  , walk
+  , walkM
 
 -- * Merging
   , MergeFun
@@ -105,16 +105,23 @@ modifyAttribsM = modifyAttribsM' mempty
                 l <- sequence mxs
                 return $ Dir name l
 
-walk :: (Monad m)
+-- | Visit all the nodes in a directory tree.
+--
+--   Each node is visited by a monadic visitor function which as
+--   arguments receives the path of the visitor function and the
+--   attribute stored in the node.
+--
+--   Returned is a linearlized list of the visit results.
+walkM :: (Monad m)
     => OsPath                               -- ^ base path
     -> (OsPath -> a -> m b)                 -- ^ visiting function
     -> DirTree a                            -- ^ tree to walk
     -> m [b]
-walk path f (File name attr) = do
+walkM path f (File name attr) = do
     r <- f (path </> name) attr
     return [r]
-walk path f (Dir name xs) = do
-    l <- mapM (walk (path </> name) f) xs
+walkM path f (Dir name xs) = do
+    l <- mapM (walkM (path </> name) f) xs
     return $ concat l
 
 -- | Node attributes for merging trees.

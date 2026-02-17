@@ -145,7 +145,7 @@ visitFilesSingle
 visitFilesSingle f rdt = do
     let tr = rdtTree rdt
         root = rdtRoot rdt
-    r <- walk mempty (\p () -> f (root </> p) ([osp|..|] </> p)) tr
+    r <- walkM mempty (\p () -> f (root </> p) ([osp|..|] </> p)) tr
     return $ any not r
 
 -- | Visit each file in multiple rooted trees.
