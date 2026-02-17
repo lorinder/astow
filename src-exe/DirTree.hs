@@ -2,7 +2,6 @@ module DirTree (
     DirTree(..)
   , getDirTree
   , modifyAttribsM
-  , modifyAttribs
   , walkM
 
 -- * Merging
@@ -12,7 +11,6 @@ module DirTree (
 ) where
 
 import Control.Monad
-import Data.Functor.Identity
 import Data.List
 
 import qualified System.Directory.OsPath as D
@@ -70,18 +68,6 @@ getDirTree base = getDirTree' base mempty
                         return $ File fn val'
                     )
                 return $ Dir subdir files
-
--- | Modify tree attributes.
---
---   For each node in a tree, applies a modifier function taking the
---   node's path and its attribute to compute a new attribute value.
-modifyAttribs
-    :: (OsPath -> a -> b)
-    -> DirTree a
-    -> DirTree b
-modifyAttribs f orig =
-    let Identity r = modifyAttribsM (\p x -> Identity $ f p x) orig
-    in  r
 
 -- | Modify tree attributes, monadic version.
 --
