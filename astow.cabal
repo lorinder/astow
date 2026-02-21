@@ -37,6 +37,7 @@ executable astow
         Actions
         DirTree
         FileUtils
+        FsOps
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

@@ -3,14 +3,16 @@
 module Main where
 
 import System.Exit
-import System.OsPath (osp, encodeUtf)
+import System.OsPath (osp, encodeUtf, takeDirectory)
 import System.OsString (isPrefixOf)
 import System.Directory.OsPath
 
 import Control.Monad
 import Options.Applicative
 
-import Actions (RootedDirTree(..), status, push, pull, delete, symlink, manifest)
+import Actions (RootedDirTree(..),
+        ActionContext(..),
+        status, push, pull, delete, symlink, manifest)
 import DirTree
 
 data Command =
@@ -65,14 +67,18 @@ main = do
     -- Scan the command line
     cl <- execParser opts
 
+    -- create action context
+    curdir <- getCurrentDirectory
+    let ac = ActionContext curdir (takeDirectory curdir)
+
     -- process
     r <- case clCmd cl of
-        CmdStatus files -> runCmd status files
-        CmdPush files -> runCmd push files
-        CmdPull files -> runCmd pull files
-        CmdSymlink files -> runCmd symlink files
-        CmdDelete files -> runCmd delete files
-        CmdManifest files -> runCmd manifest files
+        CmdStatus files -> runCmd ac status files
+        CmdPush files -> runCmd ac push files
+        CmdPull files -> runCmd ac pull files
+        CmdSymlink files -> runCmd ac symlink files
+        CmdDelete files -> runCmd ac delete files
+        CmdManifest files -> runCmd ac manifest files
 
     -- Return
     exitWith (if r then ExitSuccess else ExitFailure 1)
@@ -85,10 +91,11 @@ main = do
                     ++ "Manages a union of file system trees.  Unlike stow, "
                     ++ "files are copied by default, instead of a symlinked."))
         runCmd
-            :: ([RootedDirTree ()] -> IO Bool)  -- ^ action
-            -> [String]                     -- ^ file args
+            :: ActionContext                                    -- ^ context
+            -> (ActionContext -> [RootedDirTree ()] -> IO Bool) -- ^ action
+            -> [String]                                         -- ^ file args
             -> IO Bool
-        runCmd actionFunc files = do
+        runCmd ac actionFunc files = do
             -- Create list of OsPaths.
             --
             -- If provided list is non-empty, convert String -> OsPath.
@@ -107,4 +114,4 @@ main = do
                 )
 
             -- Execute action
-            actionFunc trees
+            actionFunc ac trees
