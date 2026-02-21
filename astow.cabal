@@ -47,6 +47,7 @@ executable astow
       , filepath
       , file-io
       , optparse-applicative
+      , os-string
     hs-source-dirs:   src-exe
 
 -- vim:et:ts=4:sw=4

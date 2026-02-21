@@ -1,7 +1,11 @@
+{-# LANGUAGE QuasiQuotes #-}
+
 module Main where
 
 import System.Exit
-import System.OsPath (encodeUtf)
+import System.OsPath (osp, encodeUtf)
+import System.OsString (isPrefixOf)
+import System.Directory.OsPath
 
 import Control.Monad
 import Options.Applicative
@@ -60,7 +64,7 @@ main :: IO ()
 main = do
     -- Scan the command line
     cl <- execParser opts
-    
+
     -- process
     r <- case clCmd cl of
         CmdStatus files -> runCmd status files
@@ -80,14 +84,27 @@ main = do
                 <> progDesc ("Minimal alternative to the \"stow\" utility.  "
                     ++ "Manages a union of file system trees.  Unlike stow, "
                     ++ "files are copied by default, instead of a symlinked."))
-        runCmd 
+        runCmd
             :: ([RootedDirTree ()] -> IO Bool)  -- ^ action
             -> [String]                     -- ^ file args
             -> IO Bool
         runCmd actionFunc files = do
-            trees <- forM files (\fn -> do
-                d <- encodeUtf fn
-                tr <- getDirTree d ()
-                return $ RootedDirTree d tr
+            -- Create list of OsPaths.
+            --
+            -- If provided list is non-empty, convert String -> OsPath.
+            -- Otherwise generate the list from the directory entries.
+            files' <- if not $ null files then
+                    mapM encodeUtf files
+                else do
+                    d <- listDirectory [osp|.|]
+                        >>= filterM doesDirectoryExist
+                    return $ filter (not . (isPrefixOf [osp|.|])) d
+
+            -- Scan RootedDirTree
+            trees <- forM files' (\fn -> do
+                tr <- getDirTree fn ()
+                return $ RootedDirTree fn tr
                 )
+
+            -- Execute action
             actionFunc trees
