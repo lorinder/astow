@@ -1,13 +1,32 @@
+{-|
+Module      : FsOps
+Description : File System Operations
+Copyright   : (c) Lorenz Minder, 2026
+License     : BSD
+Maintainer  : lminder@gmx.net
+Stability   : experimental
+Portability : POSIX
+
+The 'FsOps' typeclass provides monadic file system access functions
+needed by astow.  The purpose is to be able to pick the normal IO
+backend for production use, and use other backends for testing and
+debugging.
+
+-}
 module FsOps (
     FsOps(..)
+  , LoggedFsOpsT(..)
 ) where
 
-import Data.ByteString          as B 
-import System.Directory.OsPath  as D
-import System.IO                (IOMode(ReadMode))
-import System.OsPath            (OsPath)
-import System.File.OsPath       (withBinaryFile)
+import Control.Monad.IO.Class
 
+import qualified Data.ByteString            as B 
+import qualified System.Directory.OsPath    as D
+import System.IO                            (IOMode(ReadMode),hPutStrLn,stderr)
+import System.OsPath                        (OsPath)
+import System.File.OsPath                   (withBinaryFile)
+
+-- | Monad with file system operations.
 class FsOps m where
     filesHaveSameContent :: OsPath -> OsPath -> m Bool
     listDirectory :: OsPath -> m [OsPath]
@@ -44,3 +63,42 @@ instance FsOps IO where
     copyFileWithMetadata = D.copyFileWithMetadata
     removeFile = D.removeFile
     createFileLink = D.createFileLink
+
+-- | Transformer to log file system operations.
+newtype LoggedFsOpsT m a = LoggedFsOpsT { runLoggedFsOpsT :: m a }
+        deriving (Functor, Applicative, Monad, MonadIO)
+
+instance (FsOps m, MonadIO m) => FsOps (LoggedFsOpsT m) where
+    filesHaveSameContent a b = logFsOp
+        ("filesHaveSameContent " ++ show a ++ " " ++ show b)
+        (filesHaveSameContent a b)
+    listDirectory a = logFsOp
+        ("listDirectory " ++ show a)
+        (listDirectory a)
+    doesDirectoryExist a = logFsOp
+        ("doesDirectoryExist " ++ show a)
+        (doesDirectoryExist a)
+    doesFileExist a = logFsOp
+        ("doesFileExist " ++ show a)
+        (doesFileExist a)
+    createDirectoryIfMissing a b = logFsOp
+        ("createDirectoryIfMissing " ++ show a ++ " " ++ show b)
+        (createDirectoryIfMissing a b)
+    copyFileWithMetadata a b = logFsOp
+        ("copyFileWithMetadata " ++ show a ++ " " ++ show b)
+        (copyFileWithMetadata a b)
+    removeFile a = logFsOp
+        ("removeFile " ++ show a)
+        (removeFile a)
+    createFileLink a b = logFsOp
+        ("createFileLink " ++ show a ++ " " ++ show b)
+        (createFileLink a b)
+
+logFsOp :: (MonadIO m, FsOps m)
+    => String
+    -> m a
+    -> LoggedFsOpsT m a
+logFsOp msg action = LoggedFsOpsT (do
+    liftIO $ hPutStrLn stderr msg
+    r <- action
+    return r)

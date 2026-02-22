@@ -13,9 +13,9 @@ module DirTree (
 import Control.Monad
 import Data.List
 
-import qualified System.Directory.OsPath as D
 import System.OsPath ((</>), OsPath)
 
+import FsOps
 import FileUtils
 
 data DirTree a = File OsPath a | Dir OsPath [DirTree a]
@@ -47,21 +47,21 @@ flattenAttribs (Dir _ xs) = concatMap flattenAttribs xs
 --
 -- Walks a real file system tree and creates a DirTree from it,
 -- assigning a fixed attribute to each node.
-getDirTree
-    :: OsPath           -- ^ root path of the tree
-    -> a                -- ^ attribute for nodes.
-    -> IO (DirTree a)
+getDirTree :: forall a m. (Monad m, FsOps m)
+    => OsPath           -- ^ root path of the tree
+    -> a                -- ^ attribute for nodes
+    -> m (DirTree a)
 getDirTree base = getDirTree' base mempty
     where   getDirTree'
                 :: OsPath           -- ^ root of the subtree
                 -> OsPath           -- ^ file within the root to create tree for
                 -> a                -- ^ attribute to assign
-                -> IO (DirTree a)   -- ^ resulting dirtree
+                -> m (DirTree a)   -- ^ resulting dirtree
             getDirTree' location subdir val' = do
                 let bloc = location
-                fileNames <- sort <$> D.listDirectory (bloc </> subdir)
+                fileNames <- sort <$> listDirectory (bloc </> subdir)
                 files <- forM fileNames (\fn -> do
-                    isDir <- D.doesDirectoryExist $ bloc </> subdir </> fn
+                    isDir <- doesDirectoryExist $ bloc </> subdir </> fn
                     if isDir then 
                         getDirTree' (location </> subdir) fn val'
                     else

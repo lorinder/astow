@@ -3,64 +3,76 @@
 module Main where
 
 import System.Exit
-import System.OsPath (osp, encodeUtf, takeDirectory)
+import System.OsPath (osp, OsPath, encodeUtf, takeDirectory)
 import System.OsString (isPrefixOf)
-import System.Directory.OsPath
+import System.Directory.OsPath (getCurrentDirectory)
 
 import Control.Monad
+import Control.Monad.IO.Class
 import Options.Applicative
 
 import Actions (RootedDirTree(..),
         ActionContext(..),
         status, push, pull, delete, symlink, manifest)
 import DirTree
+import FsOps
 
 data Command =
-      CmdStatus     [String]
-    | CmdPush       [String]
-    | CmdPull       [String]
-    | CmdSymlink    [String]
-    | CmdDelete     [String]
-    | CmdManifest   [String]
+      CmdStatus     [OsPath]
+    | CmdPush       [OsPath]
+    | CmdPull       [OsPath]
+    | CmdSymlink    [OsPath]
+    | CmdDelete     [OsPath]
+    | CmdManifest   [OsPath]
     deriving (Show)
 
 data CmdLine = CmdLine {
-        clCmd               :: Command
+        clDebugLogFsOps     :: Bool
+      , clCmd               :: Command
     } deriving (Show)
 
 statusParser :: Parser Command
-statusParser = CmdStatus <$> many (argument str (metavar "DIRS..."))
+statusParser = CmdStatus <$> many (argument osPathReader (metavar "DIRS..."))
 
 pushParser :: Parser Command
-pushParser = CmdPush <$> many (argument str (metavar "DIRS..."))
+pushParser = CmdPush <$> many (argument osPathReader (metavar "DIRS..."))
 
 pullParser :: Parser Command
-pullParser = CmdPull <$> many (argument str (metavar "DIRS..."))
+pullParser = CmdPull <$> many (argument osPathReader (metavar "DIRS..."))
 
 symlinkParser :: Parser Command
-symlinkParser = CmdSymlink <$> many (argument str (metavar "DIRS..."))
+symlinkParser = CmdSymlink <$> many (argument osPathReader (metavar "DIRS..."))
 
 deleteParser :: Parser Command
-deleteParser = CmdDelete <$> many (argument str (metavar "DIRS..."))
+deleteParser = CmdDelete <$> many (argument osPathReader (metavar "DIRS..."))
 
 manifestParser :: Parser Command
-manifestParser = CmdManifest <$> many (argument str (metavar "DIRS..."))
+manifestParser = CmdManifest <$> many (argument osPathReader (metavar "DIRS..."))
 
 cmdLineParser :: Parser CmdLine
-cmdLineParser = CmdLine <$> subparser
-    ( command "status"
-        (info statusParser (progDesc "Sync status display"))
-    <> command "push"
-        (info pushParser (progDesc "Push (copy) staging files to live"))
-    <> command "pull"
-        (info pullParser (progDesc "Pull (copy) staging files from live"))
-    <> command "symlink"
-        (info symlinkParser (progDesc "Symlink staging files to live"))
-    <> command "delete"
-        (info deleteParser (progDesc "Remove files from live"))
-    <> command "manifest"
-        (info manifestParser (progDesc "Show files manifest"))
-    )
+cmdLineParser = CmdLine
+    <$> switch ( long "debug-log-fsops"
+        <> help "Log filesystem operations on stderr")
+    <*> subparser
+        ( command "status"
+            (info statusParser (progDesc "Sync status display"))
+        <> command "push"
+            (info pushParser (progDesc "Push (copy) staging files to live"))
+        <> command "pull"
+            (info pullParser (progDesc "Pull (copy) staging files from live"))
+        <> command "symlink"
+            (info symlinkParser (progDesc "Symlink staging files to live"))
+        <> command "delete"
+            (info deleteParser (progDesc "Remove files from live"))
+        <> command "manifest"
+            (info manifestParser (progDesc "Show files manifest"))
+        )
+
+osPathReader :: ReadM OsPath
+osPathReader = eitherReader $ \s ->
+    case encodeUtf s of
+        Left err -> Left (show err)
+        Right p -> Right p
 
 main :: IO ()
 main = do
@@ -72,13 +84,17 @@ main = do
     let ac = ActionContext curdir (takeDirectory curdir)
 
     -- process
-    r <- case clCmd cl of
-        CmdStatus files -> runCmd ac status files
-        CmdPush files -> runCmd ac push files
-        CmdPull files -> runCmd ac pull files
-        CmdSymlink files -> runCmd ac symlink files
-        CmdDelete files -> runCmd ac delete files
-        CmdManifest files -> runCmd ac manifest files
+    let cmd :: (Monad m, MonadIO m, FsOps m) => m Bool
+        cmd = case clCmd cl of
+                CmdStatus files     -> runCmd ac status files
+                CmdPush files       -> runCmd ac push files
+                CmdPull files       -> runCmd ac pull files
+                CmdSymlink files    -> runCmd ac symlink files
+                CmdDelete files     -> runCmd ac delete files
+                CmdManifest files   -> runCmd ac manifest files
+    r <- case clDebugLogFsOps cl of
+                True                -> runLoggedFsOpsT cmd
+                False               -> (cmd :: IO Bool)
 
     -- Return
     exitWith (if r then ExitSuccess else ExitFailure 1)
@@ -90,20 +106,20 @@ main = do
                 <> progDesc ("Minimal alternative to the \"stow\" utility.  "
                     ++ "Manages a union of file system trees.  Unlike stow, "
                     ++ "files are copied by default, instead of a symlinked."))
-        runCmd
-            :: ActionContext                                    -- ^ context
-            -> (ActionContext -> [RootedDirTree ()] -> IO Bool) -- ^ action
-            -> [String]                                         -- ^ file args
-            -> IO Bool
+        runCmd :: (Monad m, FsOps m, MonadIO m)
+            => ActionContext                                    -- ^ context
+            -> (ActionContext -> [RootedDirTree ()] -> m Bool)  -- ^ action
+            -> [OsPath]                                         -- ^ file args
+            -> m Bool
         runCmd ac actionFunc files = do
             -- Create list of OsPaths.
             --
-            -- If provided list is non-empty, convert String -> OsPath.
+            -- If provided list is non-empty, use as is.
             -- Otherwise generate the list from the directory entries.
             files' <- if not $ null files then
-                    mapM encodeUtf files
+                    return files
                 else do
-                    d <- listDirectory [osp|.|]
+                    d <- listDirectory (acStowDir ac)
                         >>= filterM doesDirectoryExist
                     return $ filter (not . (isPrefixOf [osp|.|])) d
 

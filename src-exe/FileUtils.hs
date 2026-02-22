@@ -1,37 +1,9 @@
 module FileUtils (
-    filesHaveSameContent
-  , osPathToString
+    osPathToString
 ) where
 
-import Data.ByteString          as B 
 import Data.Maybe               (fromMaybe) 
-import System.IO                (IOMode(ReadMode))
 import System.OsPath            as P
-import System.File.OsPath       (withBinaryFile)
-
--- | Check whether two files have the same content.
-filesHaveSameContent
-    :: OsPath                   -- ^ first file
-    -> OsPath                   -- ^ second file
-    -> IO Bool                  -- ^ true if matching, false otherwise
-filesHaveSameContent a b = do
-    withBinaryFile a ReadMode (\ha -> do
-        withBinaryFile b ReadMode (\hb -> do
-            checkMatch ha hb
-            )
-        )
-    where   checkMatch ha hb = do
-                let blockSz = 65536
-                ba <- B.hGet ha blockSz
-                bb <- B.hGet hb blockSz
-                if ba /= bb then
-                    return False
-                else if ba == B.empty then
-                    -- EOF reached without finding a difference
-                    return True
-                else
-                    -- keep checking
-                    checkMatch ha hb
 
 -- | Convert an OsPath to a string.
 --
