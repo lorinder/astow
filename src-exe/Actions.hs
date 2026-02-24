@@ -35,17 +35,18 @@ data ActionContext = ActionContext {
 status :: (Monad m, FsOps m, MonadIO m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> m Bool
+    -> FsOpsMonadT m Bool
 status cx = visitFiles checker
-    where   checker :: (Monad m, FsOps m, MonadIO m) => OsPath -> OsPath -> m Bool
+    where   checker :: (Monad m, FsOps m, MonadIO m)
+                => OsPath -> OsPath -> FsOpsMonadT m Bool
             checker sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
-                e <- doesFileExist pp'
+                e <- foDoesFileExist pp'
                 if not e then do
                     liftIO $ putStrLn $ "[MISSING] " ++ osPathToString sp
                 else do
-                    same <- filesHaveSameContent sp' pp'
+                    same <- foFilesHaveSameContent sp' pp'
                     unless same $ do
                         liftIO $ putStrLn $ "[DIFFERS] " ++ osPathToString sp
                 return True
@@ -59,22 +60,23 @@ status cx = visitFiles checker
 push :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> m Bool
+    -> FsOpsMonadT m Bool
 push cx = visitFiles pusher
-    where   pusher :: (Monad m, FsOps m) => OsPath -> OsPath -> m Bool
+    where   pusher :: (Monad m, FsOps m)
+                => OsPath -> OsPath -> FsOpsMonadT m Bool
             pusher sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
-                e <- doesFileExist pp'
+                e <- foDoesFileExist pp'
                 doCopy <- if not e then
                         return True
                     else do
-                        same <- filesHaveSameContent sp' pp'
+                        same <- foFilesHaveSameContent sp' pp'
                         return (not same)
                 when doCopy $ do
-                    createDirectoryIfMissing True $
+                    foCreateDirectoryIfMissing True $
                         takeDirectory pp'
-                    copyFileWithMetadata sp' pp'
+                    foCopyFileWithMetadata sp' pp'
                 return True
 
 -- | Pull (copy) changed files from production into staging.
@@ -90,21 +92,22 @@ push cx = visitFiles pusher
 pull :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> m Bool
+    -> FsOpsMonadT m Bool
 pull cx = visitFiles puller
-    where   puller :: (Monad m, FsOps m) => OsPath -> OsPath -> m Bool
+    where   puller :: (Monad m, FsOps m)
+                => OsPath -> OsPath -> FsOpsMonadT m Bool
             puller sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
-                doDelete <- not <$> doesFileExist pp'
+                doDelete <- not <$> foDoesFileExist pp'
                 doCopy <- if doDelete then
                         return False
                     else do
-                        not <$> filesHaveSameContent sp' pp'
+                        not <$> foFilesHaveSameContent sp' pp'
                 if doDelete then do
-                    removeFile sp'
+                    foRemoveFile sp'
                 else when doCopy $ do
-                    copyFileWithMetadata pp' sp'
+                    foCopyFileWithMetadata pp' sp'
                 return True
 
 -- | Unstow, i.e., remove files from production.
@@ -113,38 +116,41 @@ pull cx = visitFiles puller
 delete :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> m Bool
+    -> FsOpsMonadT m Bool
 delete cx = visitFiles deleter
-    where   deleter :: (Monad m, FsOps m) => OsPath -> OsPath -> m Bool
+    where   deleter :: (Monad m, FsOps m)
+                => OsPath -> OsPath -> FsOpsMonadT m Bool
             deleter _ pp = do
                 let pp' = acLiveDir cx </> pp
-                doDelete <- doesFileExist pp'
+                doDelete <- foDoesFileExist pp'
                 when doDelete $
-                    removeFile pp'
+                    foRemoveFile pp'
                 return True
 
 -- | Symlink files in production to staging.
 symlink :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> m Bool
+    -> FsOpsMonadT m Bool
 symlink cx = visitFiles linker
-    where   linker :: (Monad m, FsOps m) => OsPath -> OsPath -> m Bool
+    where   linker :: (Monad m, FsOps m)
+                => OsPath -> OsPath -> FsOpsMonadT m Bool
             linker sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
-                createDirectoryIfMissing True $
+                foCreateDirectoryIfMissing True $
                     takeDirectory pp'
-                createFileLink sp' pp'
+                foCreateFileLink sp' pp'
                 return True
     
 -- | Display a list of all files in a subpath.
 manifest :: (Monad m, MonadIO m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> m Bool
+    -> FsOpsMonadT m Bool
 manifest _ = visitFiles printer
-    where   printer :: (Monad m, MonadIO m) => OsPath -> OsPath -> m Bool
+    where   printer :: (Monad m, MonadIO m)
+                => OsPath -> OsPath -> FsOpsMonadT m Bool
             printer sp _ = do
                 liftIO $ print sp
                 return True

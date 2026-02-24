@@ -6,6 +6,7 @@ import System.Exit
 import System.OsPath (osp, OsPath, encodeUtf, takeDirectory)
 import System.OsString (isPrefixOf)
 import System.Directory.OsPath (getCurrentDirectory)
+import System.IO
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -14,8 +15,12 @@ import Options.Applicative
 import Actions (RootedDirTree(..),
         ActionContext(..),
         status, push, pull, delete, symlink, manifest)
+import Diagnostic
 import DirTree
+import Fallible
 import FsOps
+
+import qualified KissDList as D
 
 data Command =
       CmdStatus     [OsPath]
@@ -84,7 +89,7 @@ main = do
     let ac = ActionContext curdir (takeDirectory curdir)
 
     -- process
-    let cmd :: (Monad m, MonadIO m, FsOps m) => m Bool
+    let cmd :: (Monad m, MonadIO m, FsOps m) => FsOpsMonadT m Bool
         cmd = case clCmd cl of
                 CmdStatus files     -> runCmd ac status files
                 CmdPush files       -> runCmd ac push files
@@ -92,12 +97,18 @@ main = do
                 CmdSymlink files    -> runCmd ac symlink files
                 CmdDelete files     -> runCmd ac delete files
                 CmdManifest files   -> runCmd ac manifest files
-    r <- case clDebugLogFsOps cl of
-                True                -> runLoggedFsOpsT cmd
-                False               -> (cmd :: IO Bool)
+    (r, l) <- case clDebugLogFsOps cl of
+                    True ->
+                        (runLoggedFsOpsT . runFsOpsMonadT) (cmd :: FsOpsMonadT (LoggedFsOpsT IO) Bool)
+                    False ->
+                        runFsOpsMonadT (cmd :: FsOpsMonadT IO Bool)
+
+    -- Print log
+    forM_ (D.toList l) (\e ->
+        hPutStrLn stderr $ diagnosticMessage e)
 
     -- Return
-    exitWith (if r then ExitSuccess else ExitFailure 1)
+    exitWith (fallible (ExitFailure 1) (const (ExitFailure 2)) (const ExitSuccess) r)
 
     where
         opts = info (helper <*> cmdLineParser)
@@ -108,9 +119,9 @@ main = do
                     ++ "files are copied by default, instead of a symlinked."))
         runCmd :: (Monad m, FsOps m, MonadIO m)
             => ActionContext                                    -- ^ context
-            -> (ActionContext -> [RootedDirTree ()] -> m Bool)  -- ^ action
+            -> (ActionContext -> [RootedDirTree ()] -> FsOpsMonadT m Bool)  -- ^ action
             -> [OsPath]                                         -- ^ file args
-            -> m Bool
+            -> FsOpsMonadT m Bool
         runCmd ac actionFunc files = do
             -- Create list of OsPaths.
             --
@@ -119,8 +130,8 @@ main = do
             files' <- if not $ null files then
                     return files
                 else do
-                    d <- listDirectory (acStowDir ac)
-                        >>= filterM doesDirectoryExist
+                    d <- foListDirectory (acStowDir ac)
+                        >>= filterM foDoesDirectoryExist
                     return $ filter (not . (isPrefixOf [osp|.|])) d
 
             -- Scan RootedDirTree

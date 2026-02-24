@@ -50,18 +50,18 @@ flattenAttribs (Dir _ xs) = concatMap flattenAttribs xs
 getDirTree :: forall a m. (Monad m, FsOps m)
     => OsPath           -- ^ root path of the tree
     -> a                -- ^ attribute for nodes
-    -> m (DirTree a)
+    -> FsOpsMonadT m (DirTree a)
 getDirTree base = getDirTree' base mempty
     where   getDirTree'
                 :: OsPath           -- ^ root of the subtree
                 -> OsPath           -- ^ file within the root to create tree for
                 -> a                -- ^ attribute to assign
-                -> m (DirTree a)   -- ^ resulting dirtree
+                -> FsOpsMonadT m (DirTree a) -- ^ resulting dirtree
             getDirTree' location subdir val' = do
                 let bloc = location
-                fileNames <- sort <$> listDirectory (bloc </> subdir)
+                fileNames <- sort <$> foListDirectory (bloc </> subdir)
                 files <- forM fileNames (\fn -> do
-                    isDir <- doesDirectoryExist $ bloc </> subdir </> fn
+                    isDir <- foDoesDirectoryExist $ bloc </> subdir </> fn
                     if isDir then 
                         getDirTree' (location </> subdir) fn val'
                     else
