@@ -35,10 +35,11 @@ executable astow
     -- Modules included in this executable, other than Main.
     other-modules:
         Actions
-        DirTree
-        Fallible
-        FileUtils
-        FsOps
+      , Diagnostic
+      , DirTree
+      , Fallible
+      , FileUtils
+      , FsOps
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

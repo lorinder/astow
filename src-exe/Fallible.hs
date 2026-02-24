@@ -102,7 +102,6 @@ instance (Monad m) => Monad (FallibleT m) where
                             Aborted -> Aborted
                             Completed valid_y y'' ->
                                 Completed (valid_x && valid_y) y''
-
 -- Utility funcs
 
 class MonadFallible m where
