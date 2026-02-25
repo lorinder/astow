@@ -15,6 +15,7 @@ import Data.List
 
 import System.OsPath ((</>), OsPath)
 
+import AstowMonadT
 import FsOps
 import FileUtils
 
@@ -50,13 +51,13 @@ flattenAttribs (Dir _ xs) = concatMap flattenAttribs xs
 getDirTree :: forall a m. (Monad m, FsOps m)
     => OsPath           -- ^ root path of the tree
     -> a                -- ^ attribute for nodes
-    -> FsOpsMonadT m (DirTree a)
+    -> AstowMonadT m (DirTree a)
 getDirTree base = getDirTree' base mempty
     where   getDirTree'
                 :: OsPath           -- ^ root of the subtree
                 -> OsPath           -- ^ file within the root to create tree for
                 -> a                -- ^ attribute to assign
-                -> FsOpsMonadT m (DirTree a) -- ^ resulting dirtree
+                -> AstowMonadT m (DirTree a) -- ^ resulting dirtree
             getDirTree' location subdir val' = do
                 let bloc = location
                 fileNames <- sort <$> foListDirectory (bloc </> subdir)

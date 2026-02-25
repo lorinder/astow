@@ -35,6 +35,7 @@ executable astow
     -- Modules included in this executable, other than Main.
     other-modules:
         Actions
+      , AstowMonadT
       , Diagnostic
       , DirTree
       , Fallible

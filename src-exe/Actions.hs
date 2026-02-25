@@ -14,6 +14,7 @@ module Actions (
 import Control.Monad
 import Control.Monad.IO.Class
 
+import AstowMonadT
 import DirTree
 import FsOps
 import FileUtils (osPathToString)
@@ -35,10 +36,10 @@ data ActionContext = ActionContext {
 status :: (Monad m, FsOps m, MonadIO m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> FsOpsMonadT m Bool
+    -> AstowMonadT m Bool
 status cx = visitFiles checker
     where   checker :: (Monad m, FsOps m, MonadIO m)
-                => OsPath -> OsPath -> FsOpsMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m Bool
             checker sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
@@ -60,10 +61,10 @@ status cx = visitFiles checker
 push :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> FsOpsMonadT m Bool
+    -> AstowMonadT m Bool
 push cx = visitFiles pusher
     where   pusher :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> FsOpsMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m Bool
             pusher sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
@@ -92,10 +93,10 @@ push cx = visitFiles pusher
 pull :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> FsOpsMonadT m Bool
+    -> AstowMonadT m Bool
 pull cx = visitFiles puller
     where   puller :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> FsOpsMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m Bool
             puller sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
@@ -116,10 +117,10 @@ pull cx = visitFiles puller
 delete :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> FsOpsMonadT m Bool
+    -> AstowMonadT m Bool
 delete cx = visitFiles deleter
     where   deleter :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> FsOpsMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m Bool
             deleter _ pp = do
                 let pp' = acLiveDir cx </> pp
                 doDelete <- foDoesFileExist pp'
@@ -131,10 +132,10 @@ delete cx = visitFiles deleter
 symlink :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> FsOpsMonadT m Bool
+    -> AstowMonadT m Bool
 symlink cx = visitFiles linker
     where   linker :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> FsOpsMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m Bool
             linker sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
@@ -147,10 +148,10 @@ symlink cx = visitFiles linker
 manifest :: (Monad m, MonadIO m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> FsOpsMonadT m Bool
+    -> AstowMonadT m Bool
 manifest _ = visitFiles printer
     where   printer :: (Monad m, MonadIO m)
-                => OsPath -> OsPath -> FsOpsMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m Bool
             printer sp _ = do
                 liftIO $ print sp
                 return True
