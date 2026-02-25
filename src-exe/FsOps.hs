@@ -25,6 +25,7 @@ module FsOps (
 import Control.Monad.IO.Class
 import Control.Exception
 import Control.Monad.Trans
+import qualified Control.Monad.Trans.Writer.Strict  as W
 import qualified Data.ByteString                    as B
 import qualified System.Directory.OsPath            as D
 import System.IO                                    (IOMode(ReadMode),
@@ -34,7 +35,7 @@ import System.File.OsPath                           (withBinaryFile)
 
 import AstowMonadT
 import Fallible
-import KissDList                                    (singleton)
+import KissDList                                    (singleton, KissDList)
 import Diagnostic                                   (Diagnostic(..),
                                                      Payload(..), Severity(..))
 
@@ -140,18 +141,17 @@ instance (FsOps m, MonadIO m) => FsOps (LoggedFsOpsT m) where
         ("createFileLink " ++ show a ++ " " ++ show b)
         (foCreateFileLink a b)
 
-logFsOp :: (MonadIO m, FsOps m)
+logFsOp :: forall m a. (MonadIO m, FsOps m)
     => String
     -> AstowMonadT m a
     -> AstowMonadT (LoggedFsOpsT m) a
 logFsOp msg action = do
     liftIO $ hPutStrLn stderr msg
-    (r, diag) <- lift $ lift $ (LoggedFsOpsT $ runAstowMonadT action)
+    let l = runAstowMonadT action :: FallibleT (W.WriterT (KissDList Diagnostic) m ) a
+        l' = W.runWriterT $ runFallibleT l
+    (r, diag) <- lift $ (LoggedFsOpsT $ l')
     tell diag
-    FallibleT $ pure r
-{-
     case r of
         Aborted -> abort
         Completed False x -> invalid x
         Completed True x -> return x
--}

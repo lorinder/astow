@@ -1,6 +1,5 @@
 module AstowMonadT (
-    AstowMonadT
-  , runAstowMonadT
+    AstowMonadT(..)
   , tell
 ) where
 
@@ -15,17 +14,18 @@ import Diagnostic                                   (Diagnostic)
 --
 -- Standardized Monad to be used everywhere in astow.  It handles failures via
 -- FallibleT and keeps a log of errors or messages via WriterT.
-type AstowMonadT m = FallibleT (W.WriterT (KissDList Diagnostic) m)
+newtype AstowMonadT m a = AstowMonadT {
+        runAstowMonadT :: FallibleT (W.WriterT (KissDList Diagnostic) m) a
+    } deriving (Functor, Applicative, Monad, MonadIO, MonadFallible)
 
-runAstowMonadT :: Monad m => AstowMonadT m a -> m (Fallible a, KissDList Diagnostic)
-runAstowMonadT = W.runWriterT . runFallibleT
+instance MonadTrans AstowMonadT where
+    lift :: Monad m => m a -> AstowMonadT m a
+    lift = AstowMonadT . lift . lift
 
--- | Add logging.
+-- | Log diagnostics
 --
 -- Shorthand for using 
 -- 'Control.Monad.Writer.Trans.Writer.Strict.tell'
 -- in 'AstowMonadT'.
 tell :: Monad m => KissDList Diagnostic -> AstowMonadT m ()
-tell msgs = lift $ W.tell msgs
-
-
+tell msgs = AstowMonadT $ lift $ W.tell msgs

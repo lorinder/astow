@@ -7,6 +7,7 @@ import System.OsPath (osp, OsPath, encodeUtf, takeDirectory)
 import System.OsString (isPrefixOf)
 import System.Directory.OsPath (getCurrentDirectory)
 import System.IO
+import Control.Monad.Trans.Writer.Strict (runWriterT)
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -99,10 +100,9 @@ main = do
                 CmdDelete files     -> runCmd ac delete files
                 CmdManifest files   -> runCmd ac manifest files
     (r, l) <- case clDebugLogFsOps cl of
-                    True ->
-                        (runLoggedFsOpsT . runAstowMonadT) (cmd :: AstowMonadT (LoggedFsOpsT IO) Bool)
-                    False ->
-                        runAstowMonadT (cmd :: AstowMonadT IO Bool)
+                    True -> runLoggedFsOpsT $ runWriterT $ runFallibleT
+                             $ runAstowMonadT cmd
+                    False -> runWriterT $ runFallibleT $ runAstowMonadT cmd
 
     -- Print log
     forM_ (D.toList l) (\e ->
