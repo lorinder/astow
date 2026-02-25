@@ -5,6 +5,7 @@ module Diagnostic (
 
 -- * APIs
   , diagnosticMessage
+  , mkInfoDiagnostic
 ) where
 
 import Control.Exception
@@ -33,3 +34,6 @@ diagnosticMessage d =
             case diagPayload d of
                 NoPayload -> ""
                 IOPayload e -> ": " ++ ioeGetErrorString e
+
+mkInfoDiagnostic :: String -> Diagnostic
+mkInfoDiagnostic msg = Diagnostic msg NoPayload Info

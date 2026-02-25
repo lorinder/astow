@@ -36,8 +36,7 @@ import System.File.OsPath                           (withBinaryFile)
 import AstowMonadT
 import Fallible
 import KissDList                                    (singleton, KissDList)
-import Diagnostic                                   (Diagnostic(..),
-                                                     Payload(..), Severity(..))
+import qualified Diagnostic                         as Di
 
 
 -- | Monad with file system operations.
@@ -106,7 +105,7 @@ wrapIOAction msgWhen act = do
                     `catch` \e -> return $ Left (e :: IOException)
     case r of
         Left e -> do
-            let diag = Diagnostic msgWhen (IOPayload e) Error
+            let diag = Di.Diagnostic msgWhen (Di.IOPayload e) Di.Error
             tell $ singleton diag
             abort
         Right v -> return v
@@ -146,8 +145,10 @@ logFsOp :: forall m a. (MonadIO m, FsOps m)
     -> AstowMonadT m a
     -> AstowMonadT (LoggedFsOpsT m) a
 logFsOp msg action = do
+    tell $ singleton $ Di.mkInfoDiagnostic msg
     liftIO $ hPutStrLn stderr msg
-    let l = runAstowMonadT action :: FallibleT (W.WriterT (KissDList Diagnostic) m ) a
+    let l = runAstowMonadT action
+                :: FallibleT (W.WriterT (KissDList Di.Diagnostic) m ) a
         l' = W.runWriterT $ runFallibleT l
     (r, diag) <- lift $ (LoggedFsOpsT $ l')
     tell diag
