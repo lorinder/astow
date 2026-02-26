@@ -14,9 +14,9 @@ import System.IO.Error
 import qualified Data.Text              as T
 
 data Diagnostic = Diagnostic {
-        diagWhen        :: T.Text       -- ^ When did the problem happen ?
-      , diagPayload     :: Payload      -- ^ Payload (e.g. exception)
-      , diagSeverity    :: Severity     -- ^ severity
+        diagWhen        :: !T.Text       -- ^ When did the problem happen ?
+      , diagPayload     :: !Payload      -- ^ Payload (e.g. exception)
+      , diagSeverity    :: !Severity     -- ^ severity
     }
 
 -- | Error payload, e.g. exception.
@@ -41,4 +41,4 @@ diagnosticMessage d =
                 IOPayload e -> ": " <> T.pack (ioeGetErrorString e)
 
 mkInfoDiagnostic :: T.Text -> Diagnostic
-mkInfoDiagnostic msg = Diagnostic msg NoPayload Info
+mkInfoDiagnostic !msg = Diagnostic msg NoPayload Info
