@@ -84,7 +84,12 @@ osPathReader = eitherReader $ \s ->
 main :: IO ()
 main = do
     -- Scan the command line
-    cl <- execParser opts
+    cl <- execParser $ info (helper <*> cmdLineParser)
+            ( fullDesc
+                <> header "astow - copy based alternative to stow"
+                <> progDesc ("Tool to manage a union of file system trees. "
+                    ++ "Unlike stow, files are copied by default for"
+                    ++ "reliability"))
 
     -- create action context
     curdir <- getCurrentDirectory
@@ -112,12 +117,6 @@ main = do
     exitWith (fallible (ExitFailure 1) (const (ExitFailure 2)) (const ExitSuccess) r)
 
     where
-        opts = info (helper <*> cmdLineParser)
-            ( fullDesc
-                <> header "astow - minimal alternative to stow"
-                <> progDesc ("Minimal alternative to the \"stow\" utility.  "
-                    ++ "Manages a union of file system trees.  Unlike stow, "
-                    ++ "files are copied by default, instead of a symlinked."))
         runCmd :: (Monad m, FsOps m, MonadIO m)
             => ActionContext                                    -- ^ context
             -> (ActionContext -> [RootedDirTree ()] -> AstowMonadT m Bool)  -- ^ action
