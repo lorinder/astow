@@ -1,5 +1,6 @@
 module KissDList (
     KissDList
+  , empty
   , singleton
   , fromList
   , toList
@@ -13,6 +14,7 @@ instance Semigroup (KissDList a) where
 instance Monoid (KissDList a) where
     mempty = empty
 
+-- | An empty Dlist
 empty :: KissDList a
 empty = KissDList id
 
