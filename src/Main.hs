@@ -96,7 +96,7 @@ main = do
     let ac = ActionContext curdir (takeDirectory curdir)
 
     -- process
-    let cmd :: (Monad m, MonadIO m, FsOps m) => AstowMonadT m Bool
+    let cmd :: (Monad m, MonadIO m, FsOps m) => AstowMonadT m ()
         cmd = case clCmd cl of
                 CmdStatus files     -> runCmd ac status files
                 CmdPush files       -> runCmd ac push files
@@ -119,9 +119,9 @@ main = do
     where
         runCmd :: (Monad m, FsOps m, MonadIO m)
             => ActionContext                                    -- ^ context
-            -> (ActionContext -> [RootedDirTree ()] -> AstowMonadT m Bool)  -- ^ action
+            -> (ActionContext -> [RootedDirTree ()] -> AstowMonadT m ())  -- ^ action
             -> [OsPath]                                         -- ^ file args
-            -> AstowMonadT m Bool
+            -> AstowMonadT m ()
         runCmd ac actionFunc files = do
             -- Create list of OsPaths.
             --

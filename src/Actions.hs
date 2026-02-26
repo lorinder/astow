@@ -36,10 +36,10 @@ data ActionContext = ActionContext {
 status :: (Monad m, FsOps m, MonadIO m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> AstowMonadT m Bool
+    -> AstowMonadT m ()
 status cx = visitFiles checker
     where   checker :: (Monad m, FsOps m, MonadIO m)
-                => OsPath -> OsPath -> AstowMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m ()
             checker sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
@@ -50,7 +50,6 @@ status cx = visitFiles checker
                     same <- foFilesHaveSameContent sp' pp'
                     unless same $ do
                         liftIO $ putStrLn $ "[DIFFERS] " ++ osPathToString sp
-                return True
 
 
 -- | Push (copy) files from staging into production.
@@ -61,10 +60,10 @@ status cx = visitFiles checker
 push :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> AstowMonadT m Bool
+    -> AstowMonadT m ()
 push cx = visitFiles pusher
     where   pusher :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> AstowMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m ()
             pusher sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
@@ -78,7 +77,6 @@ push cx = visitFiles pusher
                     foCreateDirectoryIfMissing True $
                         takeDirectory pp'
                     foCopyFileWithMetadata sp' pp'
-                return True
 
 -- | Pull (copy) changed files from production into staging.
 --
@@ -93,10 +91,10 @@ push cx = visitFiles pusher
 pull :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> AstowMonadT m Bool
+    -> AstowMonadT m ()
 pull cx = visitFiles puller
     where   puller :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> AstowMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m ()
             puller sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
@@ -109,7 +107,6 @@ pull cx = visitFiles puller
                     foRemoveFile sp'
                 else when doCopy $ do
                     foCopyFileWithMetadata pp' sp'
-                return True
 
 -- | Unstow, i.e., remove files from production.
 --
@@ -117,44 +114,40 @@ pull cx = visitFiles puller
 delete :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> AstowMonadT m Bool
+    -> AstowMonadT m ()
 delete cx = visitFiles deleter
     where   deleter :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> AstowMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m ()
             deleter _ pp = do
                 let pp' = acLiveDir cx </> pp
                 doDelete <- foDoesFileExist pp'
                 when doDelete $
                     foRemoveFile pp'
-                return True
 
 -- | Symlink files in production to staging.
 symlink :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> AstowMonadT m Bool
+    -> AstowMonadT m ()
 symlink cx = visitFiles linker
     where   linker :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> AstowMonadT m Bool
+                => OsPath -> OsPath -> AstowMonadT m ()
             linker sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
                 foCreateDirectoryIfMissing True $
                     takeDirectory pp'
                 foCreateFileLink sp' pp'
-                return True
     
 -- | Display a list of all files in a subpath.
 manifest :: (Monad m, MonadIO m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> AstowMonadT m Bool
+    -> AstowMonadT m ()
 manifest _ = visitFiles printer
     where   printer :: (Monad m, MonadIO m)
-                => OsPath -> OsPath -> AstowMonadT m Bool
-            printer sp _ = do
-                liftIO $ print sp
-                return True
+                => OsPath -> OsPath -> AstowMonadT m ()
+            printer sp _ = liftIO $ print sp
 
 -- Internal helper functions.
 
@@ -164,23 +157,20 @@ manifest _ = visitFiles printer
 --   and the other one for the corresponding file in production.
 --
 --   Only proper files are visited, not directories.
-visitFilesSingle :: (Monad m)
-    => (OsPath -> OsPath -> m Bool)         -- ^ visitor (action)
+visitFilesSingle :: (Monoid a, Monad m)
+    => (OsPath -> OsPath -> m a)            -- ^ visitor (action)
     -> RootedDirTree ()                     -- ^ the tree to visit
-    -> m Bool
+    -> m a
 visitFilesSingle f rdt = do
     let tr = rdtTree rdt
         root = rdtRoot rdt
-    r <- walkM mempty (\p () -> f (root </> p) p) tr
-    return $ all id r
+    mconcat <$> walkM mempty (\p () -> f (root </> p) p) tr
 
 -- | Visit each file in multiple rooted trees.
 --
 -- Variant of 'visitFilesSingle' that takes a list of trees instead.
-visitFiles :: (Monad m)
-    => (OsPath -> OsPath -> m Bool)         -- ^ visitor (action)
+visitFiles :: (Monoid a, Monad m)
+    => (OsPath -> OsPath -> m a)         -- ^ visitor (action)
     -> [RootedDirTree ()]                   -- ^ the trees
-    -> m Bool
-visitFiles f trees = do
-    r <- mapM (visitFilesSingle f) trees 
-    return $ all id r
+    -> m a
+visitFiles f trees = mconcat <$> mapM (visitFilesSingle f) trees 
