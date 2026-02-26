@@ -14,9 +14,7 @@ import System.OsPath (osp, OsPath, encodeUtf, takeDirectory)
 import System.OsString (isPrefixOf)
 
 import AstowMonadT
-import Actions (RootedDirTree(..),
-        ActionContext(..),
-        status, push, pull, delete, symlink, manifest)
+import Actions
 import Diagnostic
 import DirTree
 import Fallible
@@ -98,12 +96,12 @@ main = do
     -- process
     let cmd :: (Monad m, MonadIO m, FsOps m) => AstowMonadT m ()
         cmd = case clCmd cl of
-                CmdStatus files     -> runCmd ac status files
-                CmdPush files       -> runCmd ac push files
-                CmdPull files       -> runCmd ac pull files
-                CmdSymlink files    -> runCmd ac symlink files
-                CmdDelete files     -> runCmd ac delete files
-                CmdManifest files   -> runCmd ac manifest files
+                CmdStatus files     -> runCmd ac statusIO files
+                CmdPush files       -> runCmd ac pushIO files
+                CmdPull files       -> runCmd ac pullIO files
+                CmdSymlink files    -> runCmd ac symlinkIO files
+                CmdDelete files     -> runCmd ac deleteIO files
+                CmdManifest files   -> runCmd ac manifestIO files
     (r, l) <- case clDebugLogFsOps cl of
                     True -> runLoggedFsOpsT $ runWriterT $ runFallibleT
                              $ runAstowMonadT cmd

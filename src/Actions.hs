@@ -4,20 +4,28 @@ module Actions (
 
 -- * actions to perform
   , status
+  , statusIO
   , push
+  , pushIO
   , pull
+  , pullIO
   , delete
+  , deleteIO
   , symlink
+  , symlinkIO
   , manifest
+  , manifestIO
 ) where
 
 import Control.Monad
 import Control.Monad.IO.Class
+import qualified Data.Text                  as T
+import qualified Data.Text.IO               as TIO
 
 import AstowMonadT
 import DirTree
 import FsOps
-import FileUtils (osPathToString)
+import FileUtils (osPathToText)
 
 import System.OsPath (OsPath, (</>), takeDirectory)
 
@@ -33,24 +41,34 @@ data ActionContext = ActionContext {
     }
 
 -- | Compare production to staging.
-status :: (Monad m, FsOps m, MonadIO m)
+status :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
-    -> AstowMonadT m ()
+    -> AstowMonadT m [ T.Text ]
 status cx = visitFiles checker
-    where   checker :: (Monad m, FsOps m, MonadIO m)
-                => OsPath -> OsPath -> AstowMonadT m ()
+    where   checker :: (Monad m, FsOps m)
+                => OsPath -> OsPath -> AstowMonadT m [ T.Text ]
             checker sp pp = do
                 let sp' = acStowDir cx </> sp
                     pp' = acLiveDir cx </> pp
                 e <- foDoesFileExist pp'
                 if not e then do
-                    liftIO $ putStrLn $ "[MISSING] " ++ osPathToString sp
+                    return [ "[MISSING] " <> osPathToText sp ]
                 else do
                     same <- foFilesHaveSameContent sp' pp'
-                    unless same $ do
-                        liftIO $ putStrLn $ "[DIFFERS] " ++ osPathToString sp
-
+                    return $ if same
+                        then []
+                        else [ "[DIFFERS] " <> osPathToText sp ]
+                    
+-- | Status with IO.
+statusIO :: (Monad m, FsOps m, MonadIO m)
+    => ActionContext
+    -> [RootedDirTree ()]
+    -> AstowMonadT m ()
+statusIO cx ts = do
+    out <- status cx ts
+    forM_ out (\l ->
+        liftIO $ TIO.putStrLn l)
 
 -- | Push (copy) files from staging into production.
 --
@@ -77,6 +95,12 @@ push cx = visitFiles pusher
                     foCreateDirectoryIfMissing True $
                         takeDirectory pp'
                     foCopyFileWithMetadata sp' pp'
+
+pushIO :: (Monad m, FsOps m, MonadIO m)
+    => ActionContext
+    -> [RootedDirTree ()]
+    -> AstowMonadT m ()
+pushIO = push
 
 -- | Pull (copy) changed files from production into staging.
 --
@@ -108,6 +132,13 @@ pull cx = visitFiles puller
                 else when doCopy $ do
                     foCopyFileWithMetadata pp' sp'
 
+-- | Alias for pull in IO.
+pullIO :: (Monad m, FsOps m, MonadIO m)
+    => ActionContext
+    -> [RootedDirTree ()]
+    -> AstowMonadT m ()
+pullIO = pull
+
 -- | Unstow, i.e., remove files from production.
 --
 --   Files that exist in staging are deleted from production.
@@ -124,6 +155,12 @@ delete cx = visitFiles deleter
                 when doDelete $
                     foRemoveFile pp'
 
+deleteIO :: (Monad m, FsOps m, MonadIO m)
+    => ActionContext
+    -> [RootedDirTree ()]
+    -> AstowMonadT m ()
+deleteIO = delete
+
 -- | Symlink files in production to staging.
 symlink :: (Monad m, FsOps m)
     => ActionContext
@@ -138,16 +175,29 @@ symlink cx = visitFiles linker
                 foCreateDirectoryIfMissing True $
                     takeDirectory pp'
                 foCreateFileLink sp' pp'
-    
--- | Display a list of all files in a subpath.
-manifest :: (Monad m, MonadIO m)
+
+symlinkIO :: (Monad m, FsOps m, MonadIO m)
     => ActionContext
     -> [RootedDirTree ()]
     -> AstowMonadT m ()
-manifest _ = visitFiles printer
-    where   printer :: (Monad m, MonadIO m)
-                => OsPath -> OsPath -> AstowMonadT m ()
-            printer sp _ = liftIO $ print sp
+symlinkIO = symlink
+    
+-- | Display a list of all files in a subpath.
+manifest :: (Monad m, FsOps m)
+    => ActionContext
+    -> [RootedDirTree ()]
+    -> AstowMonadT m [ T.Text ]
+manifest _ = visitFiles collector
+    where   collector sp _ = return [ osPathToText sp ]
+
+manifestIO :: (Monad m, FsOps m, MonadIO m)
+    => ActionContext
+    -> [RootedDirTree ()]
+    -> AstowMonadT m ()
+manifestIO cx ts = do
+    m <- manifest cx ts
+    forM_ m (\l ->
+        liftIO $ TIO.putStrLn l)
 
 -- Internal helper functions.
 
