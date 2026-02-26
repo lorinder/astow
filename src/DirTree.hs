@@ -11,13 +11,16 @@ module DirTree (
 ) where
 
 import Control.Monad
-import Data.List
+import Data.List (sort)
 
 import System.OsPath ((</>), OsPath)
 
 import AstowMonadT
+import Diagnostic
+import Fallible
 import FsOps
 import FileUtils
+import KissDList (singleton)
 
 data DirTree a = File OsPath a | Dir OsPath [DirTree a]
 
@@ -121,31 +124,37 @@ data LeftRightAttribs a b
       | Both a b
 
 -- | Attribute merger function.
-type MergeFun a b c =
+type MergeFun m a b c =
     OsPath                                  -- ^ Path being merged
     -> LeftRightAttribs a b                 -- ^ Attributes
-    -> Either String c                      -- ^ combined attribute or error
+    -> AstowMonadT m c                      -- ^ combined attribute or error
 
 -- | Merge two DirTrees.
-merge :: DirTree a                          -- ^ left tree
+merge :: (Monad m)
+      => DirTree a                          -- ^ left tree
       -> DirTree b                          -- ^ right tree
-      -> MergeFun a b c                     -- ^ attribute merger
-      -> Either String (DirTree c)          -- ^ combined tree
+      -> MergeFun m a b c                   -- ^ attribute merger
+      -> AstowMonadT m (DirTree c)          -- ^ combined tree
 merge (Dir _ vl) (Dir _ vr) f = do
     l <- mergeLists mempty vl vr f
     pure $ Dir mempty l
-merge _ _ _ = Left "Invalid tree passed to merge function"
+merge _ _ _ = do
+    tell $ singleton (Diagnostic "tree-merge"
+            (TextPayload "tree roots need to be directories")
+            Error)
+    abort
 
 --
 -- merge helper functions functionality
 --
 
 mergeLists
-    :: OsPath                               -- ^ base path
+    :: Monad m
+    => OsPath                               -- ^ base path
     -> [DirTree a]                          -- ^ left list
     -> [DirTree b]                          -- ^ right list
-    -> MergeFun a b c                       -- ^ file attribute merger
-    -> Either String [DirTree c]
+    -> MergeFun m a b c                     -- ^ file attribute merger
+    -> AstowMonadT m [DirTree c]
 mergeLists _ [] [] _ = return []
 mergeLists _ xs [] f =
     traverse (modifyAttribsM $ \p x' -> f p (LeftOnly x')) xs
@@ -169,16 +178,21 @@ mergeLists path (x:xs) (y:ys) f =
 
 -- | Merge two nodes with identical names.
 mergeNode
-    :: OsPath                                   -- ^ base path
+    :: Monad m
+    => OsPath                                   -- ^ base path
     -> DirTree a
     -> DirTree b
-    -> MergeFun a b c
-    -> Either String (DirTree c)
+    -> MergeFun m a b c
+    -> AstowMonadT m (DirTree c)
 mergeNode path (File name vl) (File _ vr) f = do
     ma <- f (path </> name) (Both vl vr)
     pure $ File name ma
 mergeNode path (Dir name xs) (Dir _ ys) f = do
     ents <- mergeLists path xs ys f
     pure $ Dir name ents
-mergeNode path x _ _ =
-    Left $ "Node type mismatch for " ++ osPathToString (path </> rootName x)
+mergeNode path x _ _ = do
+    tell $ singleton (Diagnostic "tree-merge"
+                (TextPayload $ "Node type mismatch for "
+                    <> osPathToText (path </> rootName x))
+                Error)
+    abort

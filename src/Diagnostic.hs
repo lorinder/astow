@@ -10,7 +10,6 @@ module Diagnostic (
 
 import Control.Exception
 import System.IO.Error
-
 import qualified Data.Text              as T
 
 data Diagnostic = Diagnostic {
@@ -23,6 +22,7 @@ data Diagnostic = Diagnostic {
 data Payload =
         NoPayload                       -- ^ No further information
       | IOPayload IOException           -- ^ When an IO error occurred
+      | TextPayload T.Text              -- ^ Textual error message
 
 -- | Severity of a diagnostic.
 data Severity = Info | Warning | Error
@@ -39,6 +39,7 @@ diagnosticMessage d =
             case diagPayload d of
                 NoPayload -> ""
                 IOPayload e -> ": " <> T.pack (ioeGetErrorString e)
+                TextPayload t -> ": " <> t
 
 mkInfoDiagnostic :: T.Text -> Diagnostic
 mkInfoDiagnostic !msg = Diagnostic msg NoPayload Info
