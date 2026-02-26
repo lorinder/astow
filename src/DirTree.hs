@@ -190,9 +190,19 @@ mergeNode path (File name vl) (File _ vr) f = do
 mergeNode path (Dir name xs) (Dir _ ys) f = do
     ents <- mergeLists path xs ys f
     pure $ Dir name ents
-mergeNode path x _ _ = do
+mergeNode path (File name _) _ _ = mergeInconsistency path name
+mergeNode path _ (File name _) _ = mergeInconsistency path name
+
+-- | Deal with a node type mismatch.
+--
+-- We log the error, and mark the result as invalid.  We want to avoid
+-- to abort, since it is useful to check for further errors.  In order
+-- to achieve this, we merge the node as a dummy directory node; this
+-- avoid having to invoke the merge function.
+mergeInconsistency :: Monad m => OsPath -> OsPath -> AstowMonadT m (DirTree c)
+mergeInconsistency path name = do
     tell $ singleton (Diagnostic "tree-merge"
                 (TextPayload $ "Node type mismatch for "
-                    <> osPathToText (path </> rootName x))
+                    <> osPathToText (path </> name))
                 Error)
-    abort
+    invalid $ Dir name []
