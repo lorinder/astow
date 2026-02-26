@@ -55,6 +55,6 @@ executable astow
       , optparse-applicative
       , os-string
       , transformers
-    hs-source-dirs:   src-exe
+    hs-source-dirs:   src
 
 -- vim:et:ts=4:sw=4
