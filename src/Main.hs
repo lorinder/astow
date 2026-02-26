@@ -2,16 +2,16 @@
 
 module Main where
 
-import System.Exit
-import System.OsPath (osp, OsPath, encodeUtf, takeDirectory)
-import System.OsString (isPrefixOf)
-import System.Directory.OsPath (getCurrentDirectory)
-import System.IO
-import Control.Monad.Trans.Writer.Strict (runWriterT)
-
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Writer.Strict (runWriterT)
+import Data.Text.IO (hPutStrLn)
 import Options.Applicative
+import System.Directory.OsPath (getCurrentDirectory)
+import System.Exit
+import System.IO (stderr)
+import System.OsPath (osp, OsPath, encodeUtf, takeDirectory)
+import System.OsString (isPrefixOf)
 
 import AstowMonadT
 import Actions (RootedDirTree(..),

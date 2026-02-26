@@ -54,6 +54,7 @@ executable astow
       , mtl
       , optparse-applicative
       , os-string
+      , text
       , transformers
     hs-source-dirs:   src
 

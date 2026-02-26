@@ -11,8 +11,10 @@ module Diagnostic (
 import Control.Exception
 import System.IO.Error
 
+import qualified Data.Text              as T
+
 data Diagnostic = Diagnostic {
-        diagWhen        :: String       -- ^ When did the problem happen ?
+        diagWhen        :: T.Text       -- ^ When did the problem happen ?
       , diagPayload     :: Payload      -- ^ Payload (e.g. exception)
       , diagSeverity    :: Severity     -- ^ severity
     }
@@ -24,16 +26,19 @@ data Payload =
 
 -- | Severity of a diagnostic.
 data Severity = Info | Warning | Error
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord)
 
 -- | Create a message from a diagnostic.
-diagnosticMessage :: Diagnostic -> String
+diagnosticMessage :: Diagnostic -> T.Text
 diagnosticMessage d =
-    let severityLabel = show $ diagSeverity d
-    in  severityLabel ++ ": " ++ (diagWhen d) ++
+    let severityLabel = case diagSeverity d of
+            Info -> "Info"
+            Warning -> "Warning"
+            Error -> "Error"
+    in  severityLabel <> ": " <> (diagWhen d) <>
             case diagPayload d of
                 NoPayload -> ""
-                IOPayload e -> ": " ++ ioeGetErrorString e
+                IOPayload e -> ": " <> T.pack (ioeGetErrorString e)
 
-mkInfoDiagnostic :: String -> Diagnostic
+mkInfoDiagnostic :: T.Text -> Diagnostic
 mkInfoDiagnostic msg = Diagnostic msg NoPayload Info

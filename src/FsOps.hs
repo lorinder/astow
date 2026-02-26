@@ -25,16 +25,18 @@ module FsOps (
 import Control.Monad.IO.Class
 import Control.Exception
 import Control.Monad.Trans
+import qualified Data.Text                          as T
+import Data.Text.IO                                 (hPutStrLn)
 import qualified Control.Monad.Trans.Writer.Strict  as W
 import qualified Data.ByteString                    as B
 import qualified System.Directory.OsPath            as D
-import System.IO                                    (IOMode(ReadMode),
-                                                     hPutStrLn,stderr)
+import System.IO                                    (IOMode(ReadMode), stderr)
 import System.OsPath                                (OsPath)
 import System.File.OsPath                           (withBinaryFile)
 
 import AstowMonadT
 import Fallible
+import FileUtils
 import KissDList                                    (singleton, KissDList)
 import qualified Diagnostic                         as Di
 
@@ -52,7 +54,8 @@ class FsOps m where
 
 instance FsOps IO where
     foFilesHaveSameContent a b =
-        wrapIOAction ("Comparing files " ++ show a ++ " " ++ show b) (do
+        wrapIOAction
+            ("Comparing files " <> osPathToText a <> " " <> osPathToText b) (do
             withBinaryFile a ReadMode (\ha -> do
                 withBinaryFile b ReadMode (\hb -> do
                     checkMatch ha hb
@@ -72,32 +75,32 @@ instance FsOps IO where
                         -- keep checking
                         checkMatch ha hb
     foListDirectory d = wrapIOAction
-        ("Reading directory " ++ show d)
+        ("Reading directory " <> osPathToText d)
         (D.listDirectory d)
     foDoesDirectoryExist d = wrapIOAction
-        ("Checking for directory " ++ show d)
+        ("Checking for directory " <> osPathToText d)
         (D.doesDirectoryExist d)
     foDoesFileExist p = wrapIOAction
-        ("Checking for file " ++ show p)
+        ("Checking for file " <> osPathToText p)
         (D.doesFileExist p)
     foCreateDirectoryIfMissing e d = wrapIOAction
-        ("Creating directory " ++ show d)
+        ("Creating directory " <> osPathToText d)
         (D.createDirectoryIfMissing e d)
     foCopyFileWithMetadata a b = wrapIOAction
-        ("Copying file " ++ show a ++ " -> " ++ show b)
+        ("Copying file " <> osPathToText a <> " -> " <> osPathToText b)
         (D.copyFileWithMetadata a b)
     foRemoveFile p = wrapIOAction
-        ("Removing file " ++ show p)
+        ("Removing file " <> osPathToText p)
         (D.removeFile p)
     foCreateFileLink a b = wrapIOAction
-        ("Symlinking file " ++ show b ++ " -> " ++ show a)
+        ("Symlinking file " <> osPathToText b <> " -> " <> osPathToText a)
         (D.createFileLink a b)
 
 -- | Wrap an IO action in `FsOpMonadT IO`.
 --
 -- Catch exceptions; if errors occur, report the error, and abort.
 wrapIOAction
-    :: String               -- ^ error "when" message
+    :: T.Text               -- ^ error "when" message
     -> IO a                 -- ^ action to wrap
     -> AstowMonadT IO a     -- ^ resulting wrapped action
 wrapIOAction msgWhen act = do
@@ -116,32 +119,34 @@ newtype LoggedFsOpsT m a = LoggedFsOpsT { runLoggedFsOpsT :: m a }
 
 instance (FsOps m, MonadIO m) => FsOps (LoggedFsOpsT m) where
     foFilesHaveSameContent a b = logFsOp
-        ("filesHaveSameContent " ++ show a ++ " " ++ show b)
+        ("filesHaveSameContent " <> osPathToText a <> " " <> osPathToText b)
         (foFilesHaveSameContent a b)
     foListDirectory a = logFsOp
-        ("listDirectory " ++ show a)
+        ("listDirectory " <> osPathToText a)
         (foListDirectory a)
     foDoesDirectoryExist a = logFsOp
-        ("doesDirectoryExist " ++ show a)
+        ("doesDirectoryExist " <> osPathToText a)
         (foDoesDirectoryExist a)
     foDoesFileExist a = logFsOp
-        ("doesFileExist " ++ show a)
+        ("doesFileExist " <> osPathToText a)
         (foDoesFileExist a)
     foCreateDirectoryIfMissing a b = logFsOp
-        ("createDirectoryIfMissing " ++ show a ++ " " ++ show b)
+        ("createDirectoryIfMissing " <> if a then "True" else "False"
+            <> " " <> osPathToText b)
         (foCreateDirectoryIfMissing a b)
     foCopyFileWithMetadata a b = logFsOp
-        ("copyFileWithMetadata " ++ show a ++ " " ++ show b)
+        ("copyFileWithMetadata " <> osPathToText a
+            <> " " <> osPathToText b)
         (foCopyFileWithMetadata a b)
     foRemoveFile a = logFsOp
-        ("removeFile " ++ show a)
+        ("removeFile " <> osPathToText a)
         (foRemoveFile a)
     foCreateFileLink a b = logFsOp
-        ("createFileLink " ++ show a ++ " " ++ show b)
+        ("createFileLink " <> osPathToText a <> " " <> osPathToText b)
         (foCreateFileLink a b)
 
 logFsOp :: forall m a. (MonadIO m, FsOps m)
-    => String
+    => T.Text
     -> AstowMonadT m a
     -> AstowMonadT (LoggedFsOpsT m) a
 logFsOp msg action = do
