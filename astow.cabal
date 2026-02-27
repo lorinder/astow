@@ -78,10 +78,15 @@ test-suite astow-tests
     hs-source-dirs:     tests
     other-modules:
         KissDListTests
+      , FileUtilsTests
+      , FakeFsOps
     build-depends:
         base >=4.19 && <5
       , astow
+      , containers
+      , filepath
       , hspec
+      , mtl
       , QuickCheck
 
 -- vim:et:ts=4:sw=4
