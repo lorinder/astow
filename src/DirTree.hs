@@ -1,7 +1,11 @@
 module DirTree (
+-- * Type
     DirTree(..)
-  , getDirTree
-  , modifyAttribsM
+
+-- * Creation from FsOps (e.g. file system)
+  , readFromFs
+
+-- * Traversal
   , walkM
 
 -- * Merging
@@ -11,89 +15,91 @@ module DirTree (
 ) where
 
 import Control.Monad
-import Data.List (sort)
+import Data.Maybe
+import qualified Data.Map.Strict                    as M
 
-import System.OsPath ((</>), OsPath)
+import System.OsPath                                ((</>), OsPath)
 
 import AstowMonadT
 import Diagnostic
 import Fallible
 import FsOps
 import FileUtils
-import KissDList (singleton)
 
-data DirTree a = File OsPath a | Dir OsPath [DirTree a]
+-- | Directory tree representation.
+data DirTree a = File a | Dir (M.Map OsPath (DirTree a))
 
-deriving instance Show a => Show (DirTree a)
+-- display for debugging
+instance Show a => Show (DirTree a) where
+    show = showWithDepth 0
 
-rootName :: DirTree a -> OsPath
-rootName (File x _) = x
-rootName (Dir x _) = x
-
--- | Standard typeclasses for DirTree.
+-- | Display with a given indent.
+--
+-- It writes it out in multiple lines with indents that make skimming
+-- the directory tree easy, but otherwise does preserve (apart from the
+-- fact that OsPath is not reversible in that sense.)
+showWithDepth :: Show a => Int -> DirTree a -> String
+showWithDepth n tr = 
+    let sw = 4
+    in  case tr of
+            File x -> "File " ++ show x
+            Dir dents ->
+                let ndents = M.size dents
+                    dents' = M.toAscList dents
+                in  "Dir (fromList [" ++
+                    if ndents == 0
+                        then "])\n"
+                        else concatMap (\(i, (name, subtr) ) ->
+                            "\n" ++ (take (sw * n) $ repeat ' ')
+                            ++ "(" ++ show name ++ ", "
+                            ++ (showWithDepth (n + 1) subtr)
+                            ++ ")"
+                            ++ if i < ndents - 1 then "," else "])")
+                                $ zip [0..] dents'
 
 instance Functor DirTree where
     fmap :: (a -> b) -> DirTree a -> DirTree b
-    fmap f (File name x) = File name (f x)
-    fmap f (Dir name xs) = Dir name (map (fmap f) xs)
+    fmap f (File x) = File (f x)
+    fmap f (Dir ents) = Dir (M.map (fmap f) ents) 
 
-instance Foldable DirTree where
-    foldr :: (a -> b -> b) -> b -> DirTree a -> b
-    foldr f acc x = foldr f acc $ flattenAttribs x
 
-flattenAttribs :: DirTree a -> [a]
-flattenAttribs (File _ x) = [x]
-flattenAttribs (Dir _ xs) = concatMap flattenAttribs xs
+maybeReadFromFs :: forall m. (Monad m, FsOps m)
+    => OsPath           -- ^ base (root) path
+    -> AstowMonadT m (Maybe (DirTree ()))
+maybeReadFromFs base = do
+    isDir <- foDoesDirectoryExist base
+    if isDir then do
+        fileNames <- foListDirectory base
+        msubtrees <- forM fileNames (\fn -> do
+            msubtr <- maybeReadFromFs (base </> fn)
+            return (fn, msubtr))
+        let subtrees = mapMaybe (\(fn, msubtr) ->
+                case msubtr of
+                    Just subtr -> Just (fn, subtr)
+                    Nothing -> Nothing) msubtrees
+        return $ Just $ Dir (M.fromList subtrees)
+    else do
+        isFile <- foDoesFileExist base
+        return $ if isFile then (Just $ File ()) else Nothing
 
--- IO functions
 
 -- | Create a DirTree from a file system tree.
 --
 -- Walks a real file system tree and creates a DirTree from it,
 -- assigning a fixed attribute to each node.
-getDirTree :: forall a m. (Monad m, FsOps m)
-    => OsPath           -- ^ root path of the tree
-    -> a                -- ^ attribute for nodes
-    -> AstowMonadT m (DirTree a)
-getDirTree base = getDirTree' base mempty
-    where   getDirTree'
-                :: OsPath           -- ^ root of the subtree
-                -> OsPath           -- ^ file within the root to create tree for
-                -> a                -- ^ attribute to assign
-                -> AstowMonadT m (DirTree a) -- ^ resulting dirtree
-            getDirTree' location subdir val' = do
-                let bloc = location
-                fileNames <- sort <$> foListDirectory (bloc </> subdir)
-                files <- forM fileNames (\fn -> do
-                    isDir <- foDoesDirectoryExist $ bloc </> subdir </> fn
-                    if isDir then 
-                        getDirTree' (location </> subdir) fn val'
-                    else
-                        return $ File fn val'
-                    )
-                return $ Dir subdir files
-
--- | Modify tree attributes, monadic version.
---
---   'modifyAttribs' with a monadic modifier function.
-modifyAttribsM :: (Monad m)
-    => (OsPath -> a -> m b)                 -- ^ modifier function
-    -> DirTree a                            -- ^ the tree to modify
-    -> m (DirTree b)                        -- ^ resulting output
-modifyAttribsM = modifyAttribsM' mempty
-    where   modifyAttribsM' :: (Monad m)
-                => OsPath                   -- ^ root path
-                -> (OsPath -> a -> m b)     -- ^ modifier func
-                -> DirTree a                -- ^ the tree to take
-                -> m (DirTree b)
-            modifyAttribsM' path f (File name attr) = do
-                attr' <- f (path </> name) attr
-                return $ File name attr'
-            modifyAttribsM' path f (Dir name xs) = do
-                let path' = path </> name
-                let mxs = map (modifyAttribsM' path' f) xs
-                l <- sequence mxs
-                return $ Dir name l
+readFromFs :: forall m. (Monad m, FsOps m)
+    => OsPath           -- ^ root to start scanning from
+    -> AstowMonadT m (DirTree ())
+readFromFs base = do
+    mtr <- maybeReadFromFs base
+    case mtr of
+        Just tr -> return tr
+        Nothing -> do
+            tell1 $ Diagnostic
+                ("Reading directory " <> osPathToText base)
+                NoPayload
+                Error
+            abort
 
 -- | Visit all the nodes in a directory tree.
 --
@@ -107,12 +113,10 @@ walkM :: (Monad m)
     -> (OsPath -> a -> m b)                 -- ^ visiting function
     -> DirTree a                            -- ^ tree to walk
     -> m [b]
-walkM path f (File name attr) = do
-    r <- f (path </> name) attr
-    return [r]
-walkM path f (Dir name xs) = do
-    l <- mapM (walkM (path </> name) f) xs
-    return $ concat l
+walkM path f (File attr) = (:[]) <$> f path attr
+walkM path f (Dir entsMap) = do
+    let ents = M.toAscList entsMap
+    concat <$> forM ents (\(fn, item) -> walkM (path </> fn) f item)
 
 -- | Node attributes for merging trees.
 --
@@ -131,78 +135,69 @@ type MergeFun m a b c =
 
 -- | Merge two DirTrees.
 merge :: (Monad m)
-      => DirTree a                          -- ^ left tree
+      => MergeFun m a b c                   -- ^ attribute merger
+      -> OsPath                             -- ^ root path to use
+      -> DirTree a                          -- ^ left tree
       -> DirTree b                          -- ^ right tree
-      -> MergeFun m a b c                   -- ^ attribute merger
       -> AstowMonadT m (DirTree c)          -- ^ combined tree
-merge (Dir _ vl) (Dir _ vr) f = do
-    l <- mergeLists mempty vl vr f
-    pure $ Dir mempty l
-merge _ _ _ = do
-    tell $ singleton (Diagnostic "tree-merge"
-            (TextPayload "tree roots need to be directories")
-            Error)
-    abort
+merge f path (File l) (File r) = File <$> f path (Both l r)
+merge f path (Dir ls) (Dir rs) = do
+    Dir <$> mergeDirents f path ls rs
+merge _ path _ _ = do
+    tell1 $ Diagnostic ("Attempting to merge " <> osPathToText path)
+                (TextPayload $ "Node type mismatch")
+                Error
+    invalid $ Dir M.empty
 
 --
 -- merge helper functions functionality
 --
 
-mergeLists
-    :: Monad m
-    => OsPath                               -- ^ base path
-    -> [DirTree a]                          -- ^ left list
-    -> [DirTree b]                          -- ^ right list
-    -> MergeFun m a b c                     -- ^ file attribute merger
-    -> AstowMonadT m [DirTree c]
-mergeLists _ [] [] _ = return []
-mergeLists _ xs [] f =
-    traverse (modifyAttribsM $ \p x' -> f p (LeftOnly x')) xs
-mergeLists _ [] ys f =
-    traverse (modifyAttribsM $ \p y' -> f p (RightOnly y')) ys
-mergeLists path (x:xs) (y:ys) f = 
-    let nx = rootName x
-        ny = rootName y
-    in  if nx == ny then do
-            m <- mergeNode path x y f
-            rest <- mergeLists path xs ys f
-            return (m:rest)
-        else if nx < ny then do
-            ma <- modifyAttribsM (\p x' -> f p (LeftOnly x')) x
-            rest <- mergeLists path xs (y:ys) f
-            return (ma:rest)
-        else do
-            ma <- modifyAttribsM (\p y' -> f p (RightOnly y')) y
-            rest <- mergeLists path (x:xs) ys f
-            return (ma:rest)
-
--- | Merge two nodes with identical names.
-mergeNode
-    :: Monad m
-    => OsPath                                   -- ^ base path
-    -> DirTree a
-    -> DirTree b
-    -> MergeFun m a b c
-    -> AstowMonadT m (DirTree c)
-mergeNode path (File name vl) (File _ vr) f = do
-    ma <- f (path </> name) (Both vl vr)
-    pure $ File name ma
-mergeNode path (Dir name xs) (Dir _ ys) f = do
-    ents <- mergeLists path xs ys f
-    pure $ Dir name ents
-mergeNode path (File name _) _ _ = mergeInconsistency path name
-mergeNode path _ (File name _) _ = mergeInconsistency path name
-
--- | Deal with a node type mismatch.
---
--- We log the error, and mark the result as invalid.  We want to avoid
--- to abort, since it is useful to check for further errors.  In order
--- to achieve this, we merge the node as a dummy directory node; this
--- avoid having to invoke the merge function.
-mergeInconsistency :: Monad m => OsPath -> OsPath -> AstowMonadT m (DirTree c)
-mergeInconsistency path name = do
-    tell $ singleton (Diagnostic "tree-merge"
-                (TextPayload $ "Node type mismatch for "
-                    <> osPathToText (path </> name))
-                Error)
-    invalid $ Dir name []
+mergeDirents :: forall m a b c. Monad m
+    => MergeFun m a b c
+    -> OsPath
+    -> M.Map OsPath (DirTree a)
+    -> M.Map OsPath (DirTree b)
+    -> AstowMonadT m (M.Map OsPath (DirTree c))
+mergeDirents f path lmap rmap =
+    let lsOrig = M.toAscList lmap
+        rsOrig = M.toAscList rmap
+        mergeLists
+            :: [(OsPath, DirTree a)]
+            -> [(OsPath, DirTree b)]
+            -> AstowMonadT m [(OsPath, DirTree c)]
+        mergeLists ls@((lname,lx):ls') rs@((rname,rx):rs') =
+            case compare lname rname of
+                LT -> do
+                    l <- mergeLeft lname lx
+                    (l:) <$> mergeLists ls' rs
+                GT -> do
+                    r <- mergeRight rname rx
+                    (r:) <$> mergeLists ls rs'
+                EQ -> do
+                    merged <- merge f (path </> lname) lx rx
+                    ((lname,merged):) <$> mergeLists ls' rs'
+        mergeLists ((lname,lx):ls') [] = do
+            l <- mergeLeft lname lx
+            (l:) <$> mergeLists ls' []
+        mergeLists [] ((rname,rx):rs') = do
+            r <- mergeRight rname rx
+            (r:) <$> mergeLists [] rs'
+        mergeLists [] [] = return []
+        mergeLeft :: OsPath -> DirTree a -> AstowMonadT m (OsPath, DirTree c)
+        mergeLeft lname (File lx) = do
+            x <- f (path </> lname) (LeftOnly lx)
+            return (lname, File x)
+        mergeLeft lname (Dir lents) = do
+            x <- mergeDirents f (path </> lname) lents M.empty
+            return (lname, Dir x)
+        mergeRight :: OsPath -> DirTree b -> AstowMonadT m (OsPath, DirTree c)
+        mergeRight rname (File rx) = do
+            x <- f (path </> rname) (RightOnly rx)
+            return (rname, File x)
+        mergeRight rname (Dir rents) = do
+            x <- mergeDirents f (path </> rname) M.empty rents
+            return (rname, Dir x)
+    in  do
+            lst <- mergeLists lsOrig rsOrig
+            return $ M.fromAscList lst

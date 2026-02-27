@@ -134,7 +134,7 @@ main = do
 
             -- Scan RootedDirTree
             trees <- forM files' (\fn -> do
-                tr <- getDirTree fn ()
+                tr <- readFromFs fn
                 return $ RootedDirTree fn tr
                 )
 
