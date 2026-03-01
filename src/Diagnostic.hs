@@ -16,17 +16,18 @@ data Diagnostic = Diagnostic {
         diagWhen        :: !T.Text       -- ^ When did the problem happen ?
       , diagPayload     :: !Payload      -- ^ Payload (e.g. exception)
       , diagSeverity    :: !Severity     -- ^ severity
-    }
+    } deriving (Show)
 
 -- | Error payload, e.g. exception.
 data Payload =
         NoPayload                       -- ^ No further information
       | IOPayload IOException           -- ^ When an IO error occurred
       | TextPayload T.Text              -- ^ Textual error message
+      deriving (Show)
 
 -- | Severity of a diagnostic.
 data Severity = Info | Warning | Error
-    deriving (Eq, Ord)
+    deriving (Eq, Ord, Show)
 
 -- | Create a message from a diagnostic.
 diagnosticMessage :: Diagnostic -> T.Text
