@@ -77,7 +77,8 @@ test-suite astow-tests
     type:               exitcode-stdio-1.0
     hs-source-dirs:     tests
     other-modules:
-        KissDListTests
+        DirTreeTests
+      , KissDListTests
       , FileUtilsTests
       , FakeFsOps
     build-depends:
@@ -88,5 +89,6 @@ test-suite astow-tests
       , hspec
       , mtl
       , QuickCheck
+      , transformers
 
 -- vim:et:ts=4:sw=4
