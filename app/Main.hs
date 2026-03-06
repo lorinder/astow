@@ -10,7 +10,7 @@ import Options.Applicative
 import System.Directory.OsPath (getCurrentDirectory)
 import System.Exit
 import System.IO (stderr)
-import System.OsPath (osp, OsPath, encodeUtf, takeDirectory)
+import System.OsPath (osp, OsPath, encodeUtf, splitDirectories, takeDirectory)
 import System.OsString (isPrefixOf)
 
 import AstowMonadT
@@ -18,6 +18,7 @@ import Actions
 import Diagnostic
 import DirTree
 import Fallible
+import FileUtils (osPathToText)
 import FsOps
 
 import qualified KissDList as D
@@ -129,29 +130,44 @@ main = do
     -- Return
     exitWith (fallible (ExitFailure 1) (const (ExitFailure 2)) (const ExitSuccess) r)
 
-    where
-        runCmd :: (Monad m, FsOps m, MonadIO m)
-            => ActionContext                                    -- ^ context
-            -> (ActionContext -> [RootedDirTree ()] -> AstowMonadT m ())  -- ^ action
-            -> [OsPath]                                         -- ^ file args
-            -> AstowMonadT m ()
-        runCmd ac actionFunc files = do
-            -- Create list of OsPaths.
-            --
-            -- If provided list is non-empty, use as is.
-            -- Otherwise generate the list from the directory entries.
-            files' <- if not $ null files then
-                    return files
-                else do
-                    d <- foListDirectory (acStowDir ac)
-                        >>= filterM foDoesDirectoryExist
-                    return $ filter (not . (isPrefixOf [osp|.|])) d
+runCmd :: (Monad m, FsOps m, MonadIO m)
+    => ActionContext                                             -- ^ context
+    -> (ActionContext -> [RootedDirTree ()] -> AstowMonadT m ())  -- ^ action
+    -> [OsPath]                                                 -- ^ file args
+    -> AstowMonadT m ()
+runCmd ac actionFunc files = do
+    -- Validate: reject user-supplied paths that contain ".." components.
+    forM_ files $ \p ->
+        when (any (== [osp|..|]) (splitDirectories p)) $ do
+            tell1 $ Diagnostic
+                ("Invalid argument: " <> osPathToText p)
+                (TextPayload "path must not contain '..'")
+                Error
+            abort
 
-            -- Scan RootedDirTree
-            trees <- forM files' (\fn -> do
+    -- Create list of OsPaths.
+    --
+    -- If provided list is non-empty, use as is.
+    -- Otherwise generate the list from the directory entries.
+    files' <- if not $ null files then
+            return files
+        else do
+            d <- foListDirectory (acStowDir ac)
+                >>= filterM foDoesDirectoryExist
+            return $ filter (not . (isPrefixOf [osp|.|])) d
+
+    -- Scan RootedDirTree
+    --
+    -- For a simple name "p", root="p" and the whole directory is scanned.
+    -- For a sub-path "p/a/b", root="p" and only the subtree at "p/a/b" is
+    -- scanned, but it is wrapped back in the "a/b" skeleton so that paths
+    -- within the tree remain relative to the root.
+    trees <- forM files' $ \fn ->
+        case splitDirectories fn of
+            [] -> abort  -- impossible: fn is a non-empty argument
+            (root:sub) -> do
                 tr <- readFromFs fn
-                return $ RootedDirTree fn tr
-                )
+                return $ RootedDirTree root (mkLine sub tr)
 
-            -- Execute action
-            actionFunc ac trees
+    -- Execute action
+    actionFunc ac trees
