@@ -78,6 +78,7 @@ test-suite astow-tests
     hs-source-dirs:     tests
     other-modules:
         DirTreeTests
+      , FallibleTests
       , KissDListTests
       , FileUtilsTests
       , FakeFsOps
