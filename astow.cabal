@@ -77,7 +77,9 @@ test-suite astow-tests
     type:               exitcode-stdio-1.0
     hs-source-dirs:     tests
     other-modules:
-        DirTreeTests
+        AstowMonadTTests
+      , DiagnosticTests
+      , DirTreeTests
       , FallibleTests
       , KissDListTests
       , FileUtilsTests
@@ -90,6 +92,7 @@ test-suite astow-tests
       , hspec
       , mtl
       , QuickCheck
+      , text
       , transformers
 
 -- vim:et:ts=4:sw=4

@@ -1,14 +1,18 @@
 import Test.Hspec
 
-import qualified KissDListTests
-import qualified FileUtilsTests
+import qualified AstowMonadTTests
+import qualified DiagnosticTests
 import qualified DirTreeTests
 import qualified FallibleTests
+import qualified FileUtilsTests
+import qualified KissDListTests
 
 main :: IO ()
 main = hspec $ do
-    KissDListTests.tests
-    FileUtilsTests.tests
+    AstowMonadTTests.tests
+    DiagnosticTests.tests
     DirTreeTests.tests
     FallibleTests.tests
+    FileUtilsTests.tests
+    KissDListTests.tests
 
