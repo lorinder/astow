@@ -1,5 +1,6 @@
 import Test.Hspec
 
+import qualified ActionsTests
 import qualified AstowMonadTTests
 import qualified DiagnosticTests
 import qualified DirTreeTests
@@ -9,6 +10,7 @@ import qualified KissDListTests
 
 main :: IO ()
 main = hspec $ do
+    ActionsTests.tests
     AstowMonadTTests.tests
     DiagnosticTests.tests
     DirTreeTests.tests

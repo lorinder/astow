@@ -26,6 +26,7 @@ data Fallible a =
     | Completed             -- ^ Computation completed
         !Bool               -- ^ Result validity flag
         a                   -- ^ Result value
+    deriving (Eq)
 
 -- | Convert a fallible value.
 --

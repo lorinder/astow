@@ -10,12 +10,7 @@ import Test.QuickCheck
 import Fallible
 
 -- ---------------------------------------------------------------------------
--- Orphan instances needed for testing
-
-instance Eq a => Eq (Fallible a) where
-    Aborted       == Aborted       = True
-    Completed v x == Completed w y = v == w && x == y
-    _             == _             = False
+-- Orphan instance needed for testing
 
 instance Arbitrary a => Arbitrary (Fallible a) where
     arbitrary = oneof

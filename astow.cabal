@@ -77,7 +77,8 @@ test-suite astow-tests
     type:               exitcode-stdio-1.0
     hs-source-dirs:     tests
     other-modules:
-        AstowMonadTTests
+        ActionsTests
+      , AstowMonadTTests
       , DiagnosticTests
       , DirTreeTests
       , FallibleTests

@@ -28,3 +28,9 @@ tests = do
         it "<> isomorphism with lists" $ do
             property $ \xs ys ->
                 toList (fromList xs <> fromList ys) == xs <> (ys :: [String])
+        it "mempty left identity: mempty <> xs == xs" $
+            property $ \xs ->
+                toList (mempty <> fromList xs) == (xs :: [Int])
+        it "mempty right identity: xs <> mempty == xs" $
+            property $ \xs ->
+                toList (fromList xs <> mempty) == (xs :: [Int])

@@ -20,37 +20,6 @@ runPure m =
     let (fa, dl) = runIdentity (W.runWriterT (runFallibleT (runAstowMonadT m)))
     in  (fa, toList dl)
 
--- Predicate helpers for Fallible (avoid needing an Eq orphan instance).
-
-isValidWith :: (a -> Bool) -> Fallible a -> Bool
-isValidWith p (Completed True x) = p x
-isValidWith _ _                  = False
-
-isAborted :: Fallible a -> Bool
-isAborted Aborted = True
-isAborted _       = False
-
--- | Convenience: assert a result is exactly (Completed True x).
-shouldBeValid :: (Show a, Eq a) => Fallible a -> a -> Expectation
-shouldBeValid fa expected = case fa of
-    Completed True x | x == expected -> return ()
-    Completed True x  -> expectationFailure $
-        "Expected valid " ++ show expected ++ ", got valid " ++ show x
-    Completed False x -> expectationFailure $
-        "Expected valid " ++ show expected ++ ", got invalid " ++ show x
-    Aborted           -> expectationFailure $
-        "Expected valid " ++ show expected ++ ", got Aborted"
-
--- | Convenience: assert a result is exactly (Completed False x).
-shouldBeInvalid :: (Show a, Eq a) => Fallible a -> a -> Expectation
-shouldBeInvalid fa expected = case fa of
-    Completed False x | x == expected -> return ()
-    Completed False x -> expectationFailure $
-        "Expected invalid " ++ show expected ++ ", got invalid " ++ show x
-    Completed True x  -> expectationFailure $
-        "Expected invalid " ++ show expected ++ ", got valid " ++ show x
-    Aborted           -> expectationFailure $
-        "Expected invalid " ++ show expected ++ ", got Aborted"
 
 -- ---------------------------------------------------------------------------
 -- Tests
@@ -71,7 +40,7 @@ returnTests :: SpecWith ()
 returnTests = do
     it "produces a valid result" $ do
         let (fa, _) = runPure (return (42 :: Int))
-        fa `shouldBeValid` 42
+        fa `shouldBe` Completed True 42
 
     it "produces no diagnostics" $ do
         let (_, msgs) = runPure (return (42 :: Int))
@@ -84,7 +53,7 @@ abortTests :: SpecWith ()
 abortTests = do
     it "result is Aborted" $ do
         let (fa, _) = runPure (abort :: AstowMonadT Identity Int)
-        isAborted fa `shouldBe` True
+        fa `shouldBe` Aborted
 
     it "produces no diagnostics by itself" $ do
         let (_, msgs) = runPure (abort :: AstowMonadT Identity Int)
@@ -95,12 +64,12 @@ abortTests = do
             action :: AstowMonadT Identity Int
             action = abort >> tell1 d >> return 0
             (fa, msgs) = runPure action
-        isAborted fa `shouldBe` True
+        fa `shouldBe` Aborted
         length msgs `shouldBe` 0
 
     it "short-circuits: return after abort is NOT executed" $ do
         let (fa, _) = runPure (abort >> return (1 :: Int))
-        isAborted fa `shouldBe` True
+        fa `shouldBe` Aborted
 
 -- ---------------------------------------------------------------------------
 -- invalid
@@ -109,7 +78,7 @@ invalidTests :: SpecWith ()
 invalidTests = do
     it "result is Completed False" $ do
         let (fa, _) = runPure (invalid (7 :: Int))
-        fa `shouldBeInvalid` 7
+        fa `shouldBe` Completed False 7
 
     it "produces no diagnostics by itself" $ do
         let (_, msgs) = runPure (invalid (7 :: Int))
@@ -118,19 +87,19 @@ invalidTests = do
     it "does NOT short-circuit: continuation IS executed" $ do
         -- invalid continues the chain (unlike abort)
         let (fa, _) = runPure (invalid (3 :: Int) >>= \x -> return (x + 1))
-        fa `shouldBeInvalid` 4
+        fa `shouldBe` Completed False 4
 
     it "invalid then valid keeps invalid flag" $ do
         let (fa, _) = runPure (invalid (1 :: Int) >>= \x -> return (x * 10))
-        fa `shouldBeInvalid` 10
+        fa `shouldBe` Completed False 10
 
     it "invalid then invalid stays invalid" $ do
         let (fa, _) = runPure (invalid (1 :: Int) >>= \x -> invalid (x + 1))
-        fa `shouldBeInvalid` 2
+        fa `shouldBe` Completed False 2
 
     it "invalid then abort yields Aborted" $ do
-        let (fa, _) = runPure (invalid (1 :: Int) >>= \_ -> abort)
-        isAborted fa `shouldBe` True
+        let (fa, _) = runPure (invalid (1 :: Int) >>= \_ -> abort :: AstowMonadT Identity Int)
+        fa `shouldBe` Aborted
 
 -- ---------------------------------------------------------------------------
 -- tell / tell1
@@ -149,7 +118,7 @@ tellTests = do
 
     it "tell1 produces a valid unit result" $ do
         let (fa, _) = runPure (tell1 (mkInfoDiagnostic "x"))
-        isValidWith (== ()) fa `shouldBe` True
+        fa `shouldBe` Completed True ()
 
     it "tell with a KissDList logs all entries" $ do
         let msgs3 = fromList
@@ -174,8 +143,8 @@ tellTests = do
     it "tell1 before abort IS preserved in the log" $ do
         let d = mkInfoDiagnostic "logged before abort"
             (fa, msgs) = runPure (tell1 d >> abort :: AstowMonadT Identity Int)
-        isAborted fa  `shouldBe` True
-        length msgs   `shouldBe` 1
+        fa `shouldBe` Aborted
+        length msgs `shouldBe` 1
         case msgs of
             [m] -> diagWhen m `shouldBe` "logged before abort"
             _   -> expectationFailure "Expected exactly one logged message"
@@ -183,7 +152,7 @@ tellTests = do
     it "tell1 before invalid IS preserved in the log" $ do
         let d = mkInfoDiagnostic "before invalid"
             (fa, msgs) = runPure (tell1 d >> invalid (42 :: Int))
-        fa `shouldBeInvalid` 42
+        fa `shouldBe` Completed False 42
         length msgs `shouldBe` 1
 
     it "tell1 after invalid IS executed and logged" $ do
@@ -199,7 +168,7 @@ liftTests :: SpecWith ()
 liftTests = do
     it "lift wraps a pure value as a valid completion" $ do
         let (fa, _) = runPure (lift (Identity (99 :: Int)))
-        fa `shouldBeValid` 99
+        fa `shouldBe` Completed True 99
 
     it "lift produces no diagnostics" $ do
         let (_, msgs) = runPure (lift (Identity (99 :: Int)))
@@ -216,7 +185,7 @@ bindTests = do
                 x <- return (10 :: Int)
                 tell1 (mkInfoDiagnostic "step2")
                 return (x + 1)
-        fa `shouldBeValid` 11
+        fa `shouldBe` Completed True 11
         length msgs `shouldBe` 2
 
     it "abort after several tells preserves earlier log entries" $ do
@@ -224,8 +193,8 @@ bindTests = do
                 tell1 (mkInfoDiagnostic "a")
                 tell1 (mkInfoDiagnostic "b")
                 abort :: AstowMonadT Identity Int
-        isAborted fa `shouldBe` True
-        length msgs  `shouldBe` 2
+        fa `shouldBe` Aborted
+        length msgs `shouldBe` 2
 
     it "invalid result with interleaved tells" $ do
         let (fa, msgs) = runPure $ do
@@ -233,5 +202,5 @@ bindTests = do
                 x <- invalid (5 :: Int)
                 tell1 (mkInfoDiagnostic "after")
                 return (x * 2)
-        fa `shouldBeInvalid` 10
+        fa `shouldBe` Completed False 10
         length msgs `shouldBe` 2
