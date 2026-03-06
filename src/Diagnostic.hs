@@ -12,6 +12,10 @@ import Control.Exception
 import System.IO.Error
 import qualified Data.Text              as T
 
+-- | Diagnostic message.
+--
+-- Keeps information about an error or related side channel information
+-- such as warnings.
 data Diagnostic = Diagnostic {
         diagWhen        :: !T.Text       -- ^ When did the problem happen ?
       , diagPayload     :: !Payload      -- ^ Payload (e.g. exception)

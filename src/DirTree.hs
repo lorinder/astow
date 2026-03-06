@@ -2,8 +2,13 @@ module DirTree (
 -- * Type
     DirTree(..)
 
--- * Creation from FsOps (e.g. file system)
+-- * Tree construction
+  , mkLine
   , readFromFs
+
+-- * Lookup & modification primitives
+  , getNode
+  , modifyDirentWith
 
 -- * Traversal
   , walkM
@@ -15,6 +20,7 @@ module DirTree (
 ) where
 
 import Control.Monad
+import Data.List.NonEmpty                           (NonEmpty(..))
 import Data.Maybe
 import qualified Data.Map.Strict                    as M
 
@@ -62,7 +68,44 @@ instance Functor DirTree where
     fmap f (File x) = File (f x)
     fmap f (Dir ents) = Dir (M.map (fmap f) ents) 
 
+-- | Create a chain of nested subdirectories.
+--
+-- Make a DirTree that is a line of the given path (i.e. a sequence of
+-- nested subdirectories), with the given DirTree at the endpoint.
+-- Create a line of nested subdirectory capped by the given endpoint
+mkLine
+    :: [ OsPath ]                                   -- ^ path to create
+    -> DirTree a                                    -- ^ capping endpoint
+    -> DirTree a                                    -- ^ resulting line
+mkLine [] end = end
+mkLine (p:ps) end = Dir $ M.singleton p (mkLine ps end)
 
+-- helper
+
+
+-- | Create a DirTree from a file system tree.
+--
+-- Uses FsOps to read a file system tree and creates a DirTree from it.
+readFromFs :: forall m. (Monad m, FsOps m)
+    => OsPath           -- ^ root to start scanning from
+    -> AstowMonadT m (DirTree ())
+readFromFs base = do
+    mtr <- maybeReadFromFs base
+    case mtr of
+        Just tr -> return tr
+        Nothing -> do
+            tell1 $ Diagnostic
+                ("Reading directory " <> osPathToText base)
+                (TextPayload "Empty result; path may not exist?")
+                Error
+            abort
+
+-- ReadFromFs helper.
+--
+-- This is the worker for readFromFS; it has the escape hatch of being
+-- able to return Nothing.  This is useful for directory tree where some
+-- paths are neither files nor directory;  we want to ignore those
+-- without failing altogether.
 maybeReadFromFs :: forall m. (Monad m, FsOps m)
     => OsPath           -- ^ base (root) path
     -> AstowMonadT m (Maybe (DirTree ()))
@@ -82,24 +125,76 @@ maybeReadFromFs base = do
         isFile <- foDoesFileExist base
         return $ if isFile then (Just $ File ()) else Nothing
 
-
--- | Create a DirTree from a file system tree.
+-- | Retrieve the node at the given path.
 --
--- Walks a real file system tree and creates a DirTree from it,
--- assigning a fixed attribute to each node.
-readFromFs :: forall m. (Monad m, FsOps m)
-    => OsPath           -- ^ root to start scanning from
-    -> AstowMonadT m (DirTree ())
-readFromFs base = do
-    mtr <- maybeReadFromFs base
-    case mtr of
-        Just tr -> return tr
-        Nothing -> do
-            tell1 $ Diagnostic
-                ("Reading directory " <> osPathToText base)
-                NoPayload
-                Error
+-- Returns 'Just' the node at the specified path, or 'Nothing' if there
+-- is no such node.  The location is given in separate components;
+-- 'System.OsPath.splitDirectories' can be used to obtain it from a
+-- single string.
+getNode
+    :: [ OsPath ]                                   -- ^ path
+    -> DirTree a                                    -- ^ tree root
+    -> Maybe (DirTree a)                            -- ^ retrieved node
+getNode [] tr = Just tr
+getNode (p:ps) tr =
+    case tr of
+        Dir dents -> case M.lookup p dents of
+            Nothing -> Nothing
+            Just tr' -> getNode ps tr'
+        _ -> Nothing
+    
+-- | Modify the containing directory of a path.
+--
+-- Descends into the tree along the given path, until either
+-- 
+-- - there is only one path component left, or
+-- - an intermediate component does not exist.
+--
+-- In either case, the directory mapping is then updated with the
+-- function which receives remainder path.  If during the descent a file
+-- is encountered instead of a directory, this is treated as an error,
+-- and the modification is aborted.
+--
+-- The modifier receives a leftover path, and the previous entry if any.
+-- The leftover path is the set of path components that weren't resolved
+-- before the end of the tree is used.  It is typically used to abort
+-- with an error if it's nonempty, or to create the missing intermediate
+-- directories, e.g. with mkLine.
+modifyDirentWith :: forall a m. Monad m =>
+       ([ OsPath ]                                  -- ^ fun remainder path
+        -> Maybe (DirTree a)                        -- ^ original entry
+        -> AstowMonadT m (Maybe (DirTree a))        -- ^ updated entry
+        )                                           -- ^ modifier function
+    -> NonEmpty OsPath                              -- ^ descent path
+    -> DirTree a                                    -- ^ tree to descend
+    -> AstowMonadT m (DirTree a)                    -- ^ updated tree
+modifyDirentWith f (p :| ps) tr =
+    case tr of
+        File _ -> do
+            tell1 $ Diagnostic "node modification"
+                        (TextPayload "Path component is not a directory")
+                        Error
             abort
+        Dir dents -> do
+            let mde = M.lookup p dents
+            case ps of
+                [] -> doUpdate mde dents
+                (p':ps') -> case mde of
+                    Nothing -> doUpdate mde dents
+                    Just subtr -> do
+                        subtr' <- modifyDirentWith f (p' :| ps') subtr
+                        return $ Dir (M.insert p subtr' dents)
+    where   -- doUpdate computes the update on the final node by wrapping f.
+            doUpdate :: Monad m
+                => Maybe (DirTree a)
+                -> M.Map OsPath (DirTree a)
+                -> AstowMonadT m (DirTree a)
+            doUpdate mde dents = do
+                mde' <- f ps mde
+                let dents' = case mde' of
+                        Nothing -> M.delete p dents
+                        Just de -> M.insert p de dents
+                return $ Dir dents'
 
 -- | Visit all the nodes in a directory tree.
 --
