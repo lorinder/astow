@@ -20,6 +20,7 @@ module FsOps (
 
 -- * Instances
   , LoggedFsOpsT(..)
+  , DryRunFsOpsT(..)
 ) where
 
 import Control.Monad.IO.Class
@@ -160,3 +161,32 @@ logFsOp msg action = do
         Aborted -> abort
         Completed False x -> invalid x
         Completed True x -> return x
+
+-- | Transformer that passes read-only operations through but silently
+-- discards all write operations, for dry-run mode.
+newtype DryRunFsOpsT m a = DryRunFsOpsT { runDryRunFsOpsT :: m a }
+        deriving (Functor, Applicative, Monad, MonadIO)
+
+instance (FsOps m, Monad m) => FsOps (DryRunFsOpsT m) where
+    foFilesHaveSameContent a b = passFsOp (foFilesHaveSameContent a b)
+    foListDirectory a          = passFsOp (foListDirectory a)
+    foDoesDirectoryExist a     = passFsOp (foDoesDirectoryExist a)
+    foDoesFileExist a          = passFsOp (foDoesFileExist a)
+    foCreateDirectoryIfMissing _ _ = return ()
+    foCopyFileWithMetadata _ _     = return ()
+    foRemoveFile _                 = return ()
+    foCreateFileLink _ _           = return ()
+
+passFsOp :: forall m a. (Monad m, FsOps m)
+    => AstowMonadT m a
+    -> AstowMonadT (DryRunFsOpsT m) a
+passFsOp action = do
+    let l  = runAstowMonadT action
+                :: FallibleT (W.WriterT (KissDList Di.Diagnostic) m) a
+        l' = W.runWriterT $ runFallibleT l
+    (r, diag) <- lift $ DryRunFsOpsT l'
+    tell diag
+    case r of
+        Aborted           -> abort
+        Completed False x -> invalid x
+        Completed True x  -> return x

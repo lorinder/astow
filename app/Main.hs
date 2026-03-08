@@ -33,6 +33,7 @@ data Command =
 
 data CmdLine = CmdLine {
         clDebugLogFsOps     :: Bool
+      , clDryRun            :: Bool
       , clCmd               :: Command
     } deriving (Show)
 
@@ -58,6 +59,8 @@ cmdLineParser :: Parser CmdLine
 cmdLineParser = CmdLine
     <$> switch ( long "debug-log-fsops"
         <> help "Log filesystem operations on stderr")
+    <*> switch ( long "dry-run"
+        <> help "Simulate operations without writing to disk")
     <*> subparser
         ( command "status"
             (info statusParser (progDesc "Sync status display"))
@@ -102,10 +105,15 @@ main = do
                 CmdSymlink files    -> runCmd ac symlinkIO files
                 CmdDelete files     -> runCmd ac deleteIO files
                 CmdManifest files   -> runCmd ac manifestIO files
-    (r, l) <- case clDebugLogFsOps cl of
-                    True -> runLoggedFsOpsT $ runWriterT $ runFallibleT
-                             $ runAstowMonadT cmd
-                    False -> runWriterT $ runFallibleT $ runAstowMonadT cmd
+    (r, l) <- case (clDebugLogFsOps cl, clDryRun cl) of
+                    (True,  True)  -> runLoggedFsOpsT $ runDryRunFsOpsT
+                                        $ runWriterT $ runFallibleT
+                                        $ runAstowMonadT cmd
+                    (True,  False) -> runLoggedFsOpsT $ runWriterT $ runFallibleT
+                                        $ runAstowMonadT cmd
+                    (False, True)  -> runDryRunFsOpsT $ runWriterT $ runFallibleT
+                                        $ runAstowMonadT cmd
+                    (False, False) -> runWriterT $ runFallibleT $ runAstowMonadT cmd
 
     -- Print log
     forM_ (D.toList l) (\e ->
