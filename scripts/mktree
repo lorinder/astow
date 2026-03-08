@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# mktree ROOT
+# Creates a small demo tree for testing astow.
+#
+# Layout:
+#   ROOT/                       <- live (production) directory
+#     existing.txt              <- file already present in live dir
+#     shared/
+#       nested.txt              <- another pre-existing file
+#   ROOT/stow/                  <- staging dir (run astow from here)
+#     conflicting/              <- overlaps with live dir; status will show conflicts
+#       existing.txt
+#       shared/
+#         nested.txt
+#     compat_a/                 <- independent package A
+#       a_only.txt
+#       shared_data/
+#         from_a.txt
+#     compat_b/                 <- independent package B (non-overlapping with A)
+#       b_only.txt
+#       shared_data/
+#         from_b.txt
+#
+# Usage:
+#   cd ROOT/stow && astow status
+#   cd ROOT/stow && astow push compat_a
+#   cd ROOT/stow && astow push compat_b
+#   cd ROOT/stow && astow status conflicting   # shows conflicts
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 ROOT" >&2
+    exit 1
+fi
+
+ROOT="$1"
+
+if [[ -e "$ROOT" ]]; then
+    echo "Error: '$ROOT' already exists." >&2
+    exit 1
+fi
+
+# --- live directory ---
+mkdir -p "$ROOT/shared"
+echo "I am already in the live dir." > "$ROOT/existing.txt"
+echo "I am a nested pre-existing file." > "$ROOT/shared/nested.txt"
+
+# --- stow/conflicting: mirrors the pre-existing live files ---
+mkdir -p "$ROOT/stow/conflicting/shared"
+echo "I want to overwrite existing.txt." > "$ROOT/stow/conflicting/existing.txt"
+echo "I want to overwrite shared/nested.txt." > "$ROOT/stow/conflicting/shared/nested.txt"
+
+# --- stow/compat_a: independent package, no overlap with compat_b ---
+mkdir -p "$ROOT/stow/compat_a/shared_data"
+echo "Managed by compat_a." > "$ROOT/stow/compat_a/a_only.txt"
+echo "Shared data from package A." > "$ROOT/stow/compat_a/shared_data/from_a.txt"
+
+# --- stow/compat_b: independent package, no overlap with compat_a ---
+mkdir -p "$ROOT/stow/compat_b/shared_data"
+echo "Managed by compat_b." > "$ROOT/stow/compat_b/b_only.txt"
+echo "Shared data from package B." > "$ROOT/stow/compat_b/shared_data/from_b.txt"
+
+echo "Created demo tree at '$ROOT'."
+echo ""
+echo "Try:"
+echo "  cd $ROOT/stow"
+echo "  astow status               # all packages"
+echo "  astow status conflicting   # shows conflicts with live dir"
+echo "  astow push compat_a        # safe: pushes A's files"
+echo "  astow push compat_b        # safe: pushes B's files (no overlap with A)"
