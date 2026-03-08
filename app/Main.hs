@@ -29,6 +29,7 @@ data Command =
     | CmdSymlink    [OsPath]
     | CmdDelete     [OsPath]
     | CmdManifest   [OsPath]
+    | CmdDiff       [OsPath]
     deriving (Show)
 
 data CmdLine = CmdLine {
@@ -55,6 +56,9 @@ deleteParser = CmdDelete <$> many (argument osPathReader (metavar "DIRS..."))
 manifestParser :: Parser Command
 manifestParser = CmdManifest <$> many (argument osPathReader (metavar "DIRS..."))
 
+diffParser :: Parser Command
+diffParser = CmdDiff <$> many (argument osPathReader (metavar "DIRS..."))
+
 cmdLineParser :: Parser CmdLine
 cmdLineParser = CmdLine
     <$> switch ( long "debug-log-fsops"
@@ -74,6 +78,8 @@ cmdLineParser = CmdLine
             (info deleteParser (progDesc "Remove files from live"))
         <> command "manifest"
             (info manifestParser (progDesc "Show files manifest"))
+        <> command "diff"
+            (info diffParser (progDesc "Diff staging files against live"))
         )
 
 osPathReader :: ReadM OsPath
@@ -105,6 +111,7 @@ main = do
                 CmdSymlink files    -> runCmd ac symlinkIO files
                 CmdDelete files     -> runCmd ac deleteIO files
                 CmdManifest files   -> runCmd ac manifestIO files
+                CmdDiff files       -> runCmd ac diffIO files
     (r, l) <- case (clDebugLogFsOps cl, clDryRun cl) of
                     (True,  True)  -> runLoggedFsOpsT $ runDryRunFsOpsT
                                         $ runWriterT $ runFallibleT

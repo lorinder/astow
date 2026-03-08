@@ -49,6 +49,7 @@ library
       , file-io
       , mtl
       , os-string
+      , process
       , text
       , transformers
 

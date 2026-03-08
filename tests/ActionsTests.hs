@@ -5,7 +5,7 @@ module ActionsTests (tests) where
 import Control.Monad.State.Strict             (runState)
 import qualified Control.Monad.Trans.Writer.Strict as W
 import qualified Data.Map.Strict              as M
-import System.OsPath                          (OsPath, osp)
+import System.OsPath                          (OsPath, osp, (</>))
 import Test.Hspec
 
 import Actions
@@ -158,6 +158,7 @@ tests = do
     describe "pull"     pullTests
     describe "delete"   deleteTests
     describe "symlink"  symlinkTests
+    describe "diff"     diffTests
 
 -- ---------------------------------------------------------------------------
 -- manifest
@@ -365,3 +366,49 @@ symlinkTests = do
         fileAt [[osp|live|], [osp|top|]] finalFs `shouldBe` Just "v1"
         fileAt [[osp|live|], [osp|sub|], [osp|a|]] finalFs `shouldBe` Just "v2"
         fileAt [[osp|live|], [osp|sub|], [osp|b|]] finalFs `shouldBe` Just "v3"
+
+-- ---------------------------------------------------------------------------
+-- diff
+
+diffTests :: SpecWith ()
+diffTests = do
+    it "empty tree list returns no pairs" $ do
+        let (fa, _) = runFake (Dir M.empty) (diff cx [])
+        fa `shouldBe` Completed True []
+
+    it "file missing from live is included as a pair" $ do
+        let (fa, _) = runFake fsStowOnly (diff cx treeSingle)
+        fa `shouldBe` Completed True
+            [( [osp|stow|] </> [osp|f|]
+             , [osp|live|] </> [osp|f|] )]
+
+    it "file with same content produces no pair" $ do
+        let (fa, _) = runFake fsSame (diff cx treeSingle)
+        fa `shouldBe` Completed True []
+
+    it "file with different content is included as a pair" $ do
+        let (fa, _) = runFake fsDiffer (diff cx treeSingle)
+        fa `shouldBe` Completed True
+            [( [osp|stow|] </> [osp|f|]
+             , [osp|live|] </> [osp|f|] )]
+
+    it "nested tree missing from live: all files included" $ do
+        let (fa, _) = runFake fsNestedStowOnly (diff cx treeNested)
+        fa `shouldBe` Completed True
+            [ ( [osp|stow|] </> [osp|sub|] </> [osp|a|]
+              , [osp|live|] </> [osp|sub|] </> [osp|a|] )
+            , ( [osp|stow|] </> [osp|sub|] </> [osp|b|]
+              , [osp|live|] </> [osp|sub|] </> [osp|b|] )
+            , ( [osp|stow|] </> [osp|top|]
+              , [osp|live|] </> [osp|top|] )
+            ]
+
+    it "nested tree identical everywhere: no pairs" $ do
+        let (fa, _) = runFake fsNestedSame (diff cx treeNested)
+        fa `shouldBe` Completed True []
+
+    it "nested tree with one differing file: only that pair is returned" $ do
+        let (fa, _) = runFake fsNestedDiffer (diff cx treeNested)
+        fa `shouldBe` Completed True
+            [( [osp|stow|] </> [osp|sub|] </> [osp|a|]
+             , [osp|live|] </> [osp|sub|] </> [osp|a|] )]

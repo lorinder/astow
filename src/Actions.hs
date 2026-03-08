@@ -15,17 +15,20 @@ module Actions (
   , symlinkIO
   , manifest
   , manifestIO
+  , diff
+  , diffIO
 ) where
 
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as TIO
+import System.Process                       (rawSystem)
 
 import AstowMonadT
 import DirTree
 import FsOps
-import FileUtils (osPathToText)
+import FileUtils (osPathToString, osPathToText)
 
 import System.OsPath (OsPath, (</>), takeDirectory)
 
@@ -198,6 +201,41 @@ manifestIO cx ts = do
     m <- manifest cx ts
     forM_ m (\l ->
         liftIO $ TIO.putStrLn l)
+
+-- | Compare staging to production, returning pairs of absolute paths
+-- @(stow, live)@ for files that are missing from live or differ.
+--
+-- Files with identical content are omitted.  A missing live file is
+-- included with its expected (non-existent) path so that @diff -uN@
+-- will treat it as empty.
+diff :: (Monad m, FsOps m)
+    => ActionContext
+    -> [RootedDirTree ()]
+    -> AstowMonadT m [(OsPath, OsPath)]
+diff cx = visitFiles checker
+    where   checker sp pp = do
+                let sp' = acStowDir cx </> sp
+                    pp' = acLiveDir cx </> pp
+                e <- foDoesFileExist pp'
+                if not e then
+                    return [(sp', pp')]
+                else do
+                    same <- foFilesHaveSameContent sp' pp'
+                    return $ if same then [] else [(sp', pp')]
+
+-- | Diff with IO: runs @diff -uN live stow@ for each differing file.
+--
+-- The exit code from @diff@ is ignored since 1 (files differ) is the
+-- normal case here.  Output goes directly to stdout.
+diffIO :: (Monad m, FsOps m, MonadIO m)
+    => ActionContext
+    -> [RootedDirTree ()]
+    -> AstowMonadT m ()
+diffIO cx ts = do
+    pairs <- diff cx ts
+    forM_ pairs $ \(sp', pp') ->
+        liftIO $ void $ rawSystem "diff"
+            ["-uN", osPathToString pp', osPathToString sp']
 
 -- Internal helper functions.
 
