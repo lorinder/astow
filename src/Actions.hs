@@ -44,25 +44,29 @@ data ActionContext = ActionContext {
     }
 
 -- | Compare target to stow directory.
+--
+-- Visits all nodes checking both sides.
+--
+-- Reports @[MISSING]@, @[UNKNOWN]@, or @[DIFFERS]@ as appropriate.
 status :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
     -> AstowMonadT m [ T.Text ]
 status cx = visitFiles checker
     where   checker :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> AstowMonadT m [ T.Text ]
+                => OsPath -> OsPath -> AstowMonadT m [T.Text]
             checker sp tgtP = do
-                let sp' = acStowDir cx </> sp
+                let sp'   = acStowDir cx </> sp
                     tgtP' = acTargetDir cx </> tgtP
-                e <- foDoesFileExist tgtP'
-                if not e then do
-                    return [ "[MISSING] " <> osPathToText sp ]
-                else do
-                    same <- foFilesHaveSameContent sp' tgtP'
-                    return $ if same
-                        then []
-                        else [ "[DIFFERS] " <> osPathToText sp ]
-                    
+                bs <- foDoesFileExist sp'
+                bt <- foDoesFileExist tgtP'
+                case (bs, bt) of
+                    (True,  False) -> return ["[MISSING] " <> osPathToText sp]
+                    (False, True)  -> return ["[UNKNOWN] " <> osPathToText sp]
+                    (True,  True)  -> do same <- foFilesHaveSameContent sp' tgtP'
+                                         return $ if same then [] else ["[DIFFERS] " <> osPathToText sp]
+                    (False, False) -> return []
+
 -- | Status with IO.
 statusIO :: (Monad m, FsOps m, MonadIO m)
     => ActionContext
@@ -111,10 +115,13 @@ pushIO = push
 --   the stow directory to match the target version.  Files in the stow directory
 --   but missing from the target are deleted from the stow directory.
 --
---   Note that files newly added to the target can never be detected in
---   this way, as the manifest of files to consider is in the stow directory.
---   Thus newly added files cannot be pulled automatically but need to be
---   manually copied into the stow directory.
+--   When a tree entry has no counterpart in the stow directory (e.g. because
+--   it was sourced from the target by the caller), the file is created in the
+--   stow directory, including any intermediate directories.
+--
+--   Note that files newly added to the target cannot be detected automatically,
+--   as the manifest of files to consider comes from the caller.  They can be
+--   captured by specifying them explicitly on the command line.
 pull :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
@@ -125,15 +132,21 @@ pull cx = visitFiles puller
             puller sp tgtP = do
                 let sp' = acStowDir cx </> sp
                     tgtP' = acTargetDir cx </> tgtP
-                doDelete <- not <$> foDoesFileExist tgtP'
-                doCopy <- if doDelete then
-                        return False
+                tgtExists <- foDoesFileExist tgtP'
+                if not tgtExists
+                    then do
+                        -- Target gone: remove stow copy if present.
+                        stowExists <- foDoesFileExist sp'
+                        when stowExists $ foRemoveFile sp'
                     else do
-                        not <$> foFilesHaveSameContent sp' tgtP'
-                if doDelete then do
-                    foRemoveFile sp'
-                else when doCopy $ do
-                    foCopyFileWithMetadata tgtP' sp'
+                        -- Target exists: copy to stow if absent or differs.
+                        stowExists <- foDoesFileExist sp'
+                        doCopy <- if stowExists
+                            then not <$> foFilesHaveSameContent sp' tgtP'
+                            else return True
+                        when doCopy $ do
+                            foCreateDirectoryIfMissing True (takeDirectory sp')
+                            foCopyFileWithMetadata tgtP' sp'
 
 -- | Alias for pull in IO.
 pullIO :: (Monad m, FsOps m, MonadIO m)
@@ -190,8 +203,13 @@ manifest :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
     -> AstowMonadT m [ T.Text ]
-manifest _ = visitFiles collector
-    where   collector sp _ = return [ osPathToText sp ]
+manifest cx = visitFiles collector
+    where   collector sp _ = do
+                let sp' = acStowDir cx </> sp
+                e <- foDoesFileExist sp'
+                return $ if e
+                    then [ osPathToText sp ]
+                    else [ ]
 
 manifestIO :: (Monad m, FsOps m, MonadIO m)
     => ActionContext

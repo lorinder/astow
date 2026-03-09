@@ -10,7 +10,7 @@ import Options.Applicative
 import System.Directory.OsPath (getCurrentDirectory)
 import System.Exit
 import System.IO (stderr)
-import System.OsPath (osp, OsPath, encodeUtf, splitDirectories, takeDirectory)
+import System.OsPath (osp, OsPath, encodeUtf, splitDirectories, takeDirectory, (</>))
 import System.OsString (isPrefixOf)
 
 import AstowMonadT
@@ -162,11 +162,40 @@ runCmd ac actionFunc files = do
     -- For a sub-path "p/a/b", root="p" and only the subtree at "p/a/b" is
     -- scanned, but it is wrapped back in the "a/b" skeleton so that paths
     -- within the tree remain relative to the root.
+    --
+    -- If the path does not exist in the stow directory but a sub-path was
+    -- given, the corresponding path in the target directory is tried instead.
+    -- This allows e.g. "astow pull bash/.bashrc" to capture a file that is
+    -- not yet tracked in the stow directory.
     trees <- forM files' $ \fn ->
         case splitDirectories fn of
             [] -> abort  -- impossible: fn is a non-empty argument
             (root:sub) -> do
-                tr <- readFromFs fn
+                let targetPath = foldl (</>) (acTargetDir ac) sub
+                stowIsFile <- foDoesFileExist fn
+                stowIsDir  <- foDoesDirectoryExist fn
+                tr <- if stowIsFile || stowIsDir
+                    then readFromFs fn
+                    else case sub of
+                        -- Top-level package name not in stow: hard error.
+                        [] -> do
+                            tell1 $ Diagnostic
+                                ("Not found: " <> osPathToText fn)
+                                (TextPayload "package not found in stow directory")
+                                Error
+                            abort
+                        -- Sub-path: fall back to the target directory.
+                        _ -> do
+                            tgtIsFile <- foDoesFileExist targetPath
+                            tgtIsDir  <- foDoesDirectoryExist targetPath
+                            if tgtIsFile || tgtIsDir
+                                then readFromFs targetPath
+                                else do
+                                    tell1 $ Diagnostic
+                                        ("Not found: " <> osPathToText fn)
+                                        (TextPayload "path not found in stow directory or target")
+                                        Error
+                                    abort
                 return $ RootedDirTree root (mkLine sub tr)
 
     -- Execute action
