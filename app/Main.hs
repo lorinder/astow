@@ -69,17 +69,17 @@ cmdLineParser = CmdLine
         ( command "status"
             (info statusParser (progDesc "Sync status display"))
         <> command "push"
-            (info pushParser (progDesc "Push (copy) staging files to live"))
+            (info pushParser (progDesc "Copy packages to target"))
         <> command "pull"
-            (info pullParser (progDesc "Pull (copy) staging files from live"))
+            (info pullParser (progDesc "Sync packages from target"))
         <> command "symlink"
-            (info symlinkParser (progDesc "Symlink staging files to live"))
+            (info symlinkParser (progDesc "Symlink packages to target"))
         <> command "delete"
-            (info deleteParser (progDesc "Remove files from live"))
+            (info deleteParser (progDesc "Remove packages from target"))
         <> command "manifest"
             (info manifestParser (progDesc "Show files manifest"))
         <> command "diff"
-            (info diffParser (progDesc "Diff staging files against live"))
+            (info diffParser (progDesc "Diff packages against target"))
         )
 
 osPathReader :: ReadM OsPath
@@ -100,7 +100,7 @@ main = do
 
     -- create action context
     curdir <- getCurrentDirectory
-    let ac = ActionContext curdir (takeDirectory curdir)
+    let ac = ActionContext { acStowDir = curdir, acTargetDir = takeDirectory curdir }
 
     -- process
     let cmd :: (Monad m, MonadIO m, FsOps m) => AstowMonadT m ()

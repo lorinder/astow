@@ -32,7 +32,7 @@ import FileUtils (osPathToString, osPathToText)
 
 import System.OsPath (OsPath, (</>), takeDirectory)
 
--- | DirTree together with a rooting path.
+-- | DirTree together with a root path.
 data RootedDirTree a = RootedDirTree {
         rdtRoot         :: OsPath
       , rdtTree         :: DirTree a
@@ -40,10 +40,10 @@ data RootedDirTree a = RootedDirTree {
 
 data ActionContext = ActionContext {
         acStowDir       :: OsPath
-      , acLiveDir       :: OsPath
+      , acTargetDir     :: OsPath
     }
 
--- | Compare production to staging.
+-- | Compare target to stow directory.
 status :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
@@ -51,14 +51,14 @@ status :: (Monad m, FsOps m)
 status cx = visitFiles checker
     where   checker :: (Monad m, FsOps m)
                 => OsPath -> OsPath -> AstowMonadT m [ T.Text ]
-            checker sp pp = do
+            checker sp tgtP = do
                 let sp' = acStowDir cx </> sp
-                    pp' = acLiveDir cx </> pp
-                e <- foDoesFileExist pp'
+                    tgtP' = acTargetDir cx </> tgtP
+                e <- foDoesFileExist tgtP'
                 if not e then do
                     return [ "[MISSING] " <> osPathToText sp ]
                 else do
-                    same <- foFilesHaveSameContent sp' pp'
+                    same <- foFilesHaveSameContent sp' tgtP'
                     return $ if same
                         then []
                         else [ "[DIFFERS] " <> osPathToText sp ]
@@ -73,10 +73,10 @@ statusIO cx ts = do
     forM_ out (\l ->
         liftIO $ TIO.putStrLn l)
 
--- | Push (copy) files from staging into production.
+-- | Push (copy) files from the stow directory into the target directory.
 --
---   Files in staging missing in production are copied into production;
---   files different in production are overwritten with the updated
+--   Files in the stow directory missing in the target are copied into the target;
+--   files different in the target are overwritten with the updated
 --   version.  Unchanged files are left alone.
 push :: (Monad m, FsOps m)
     => ActionContext
@@ -85,19 +85,19 @@ push :: (Monad m, FsOps m)
 push cx = visitFiles pusher
     where   pusher :: (Monad m, FsOps m)
                 => OsPath -> OsPath -> AstowMonadT m ()
-            pusher sp pp = do
+            pusher sp tgtP = do
                 let sp' = acStowDir cx </> sp
-                    pp' = acLiveDir cx </> pp
-                e <- foDoesFileExist pp'
+                    tgtP' = acTargetDir cx </> tgtP
+                e <- foDoesFileExist tgtP'
                 doCopy <- if not e then
                         return True
                     else do
-                        same <- foFilesHaveSameContent sp' pp'
+                        same <- foFilesHaveSameContent sp' tgtP'
                         return (not same)
                 when doCopy $ do
                     foCreateDirectoryIfMissing True $
-                        takeDirectory pp'
-                    foCopyFileWithMetadata sp' pp'
+                        takeDirectory tgtP'
+                    foCopyFileWithMetadata sp' tgtP'
 
 pushIO :: (Monad m, FsOps m, MonadIO m)
     => ActionContext
@@ -105,16 +105,16 @@ pushIO :: (Monad m, FsOps m, MonadIO m)
     -> AstowMonadT m ()
 pushIO = push
 
--- | Pull (copy) changed files from production into staging.
+-- | Pull (copy) changed files from the target directory into the stow directory.
 --
---   Files that differ in production from staging are overwritten in
---   staging to match the production version.  Files existant in staging
---   but missing from production are deleted in staging.
+--   Files that differ in the target from the stow directory are overwritten in
+--   the stow directory to match the target version.  Files in the stow directory
+--   but missing from the target are deleted from the stow directory.
 --
---   Note that files that have been newly added to production can never
---   be detected in this way; as the manifest of files to considers is
---   in the staging area.  Thus newly added files cannot be pulled
---   automatically but need to be manually copied into staging.
+--   Note that files newly added to the target can never be detected in
+--   this way, as the manifest of files to consider is in the stow directory.
+--   Thus newly added files cannot be pulled automatically but need to be
+--   manually copied into the stow directory.
 pull :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
@@ -122,18 +122,18 @@ pull :: (Monad m, FsOps m)
 pull cx = visitFiles puller
     where   puller :: (Monad m, FsOps m)
                 => OsPath -> OsPath -> AstowMonadT m ()
-            puller sp pp = do
+            puller sp tgtP = do
                 let sp' = acStowDir cx </> sp
-                    pp' = acLiveDir cx </> pp
-                doDelete <- not <$> foDoesFileExist pp'
+                    tgtP' = acTargetDir cx </> tgtP
+                doDelete <- not <$> foDoesFileExist tgtP'
                 doCopy <- if doDelete then
                         return False
                     else do
-                        not <$> foFilesHaveSameContent sp' pp'
+                        not <$> foFilesHaveSameContent sp' tgtP'
                 if doDelete then do
                     foRemoveFile sp'
                 else when doCopy $ do
-                    foCopyFileWithMetadata pp' sp'
+                    foCopyFileWithMetadata tgtP' sp'
 
 -- | Alias for pull in IO.
 pullIO :: (Monad m, FsOps m, MonadIO m)
@@ -142,9 +142,9 @@ pullIO :: (Monad m, FsOps m, MonadIO m)
     -> AstowMonadT m ()
 pullIO = pull
 
--- | Unstow, i.e., remove files from production.
+-- | Remove files from the target directory.
 --
---   Files that exist in staging are deleted from production.
+--   Files that exist in the stow directory are deleted from the target.
 delete :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
@@ -152,11 +152,11 @@ delete :: (Monad m, FsOps m)
 delete cx = visitFiles deleter
     where   deleter :: (Monad m, FsOps m)
                 => OsPath -> OsPath -> AstowMonadT m ()
-            deleter _ pp = do
-                let pp' = acLiveDir cx </> pp
-                doDelete <- foDoesFileExist pp'
+            deleter _ tgtP = do
+                let tgtP' = acTargetDir cx </> tgtP
+                doDelete <- foDoesFileExist tgtP'
                 when doDelete $
-                    foRemoveFile pp'
+                    foRemoveFile tgtP'
 
 deleteIO :: (Monad m, FsOps m, MonadIO m)
     => ActionContext
@@ -164,7 +164,7 @@ deleteIO :: (Monad m, FsOps m, MonadIO m)
     -> AstowMonadT m ()
 deleteIO = delete
 
--- | Symlink files in production to staging.
+-- | Symlink files in the target directory to the stow directory.
 symlink :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
@@ -172,12 +172,12 @@ symlink :: (Monad m, FsOps m)
 symlink cx = visitFiles linker
     where   linker :: (Monad m, FsOps m)
                 => OsPath -> OsPath -> AstowMonadT m ()
-            linker sp pp = do
+            linker sp tgtP = do
                 let sp' = acStowDir cx </> sp
-                    pp' = acLiveDir cx </> pp
+                    tgtP' = acTargetDir cx </> tgtP
                 foCreateDirectoryIfMissing True $
-                    takeDirectory pp'
-                foCreateFileLink sp' pp'
+                    takeDirectory tgtP'
+                foCreateFileLink sp' tgtP'
 
 symlinkIO :: (Monad m, FsOps m, MonadIO m)
     => ActionContext
@@ -202,10 +202,10 @@ manifestIO cx ts = do
     forM_ m (\l ->
         liftIO $ TIO.putStrLn l)
 
--- | Compare staging to production, returning pairs of absolute paths
--- @(stow, live)@ for files that are missing from live or differ.
+-- | Compare stow directory to target, returning pairs of absolute paths
+-- @(stow, target)@ for files that are missing from the target or differ.
 --
--- Files with identical content are omitted.  A missing live file is
+-- Files with identical content are omitted.  A missing target file is
 -- included with its expected (non-existent) path so that @diff -uN@
 -- will treat it as empty.
 diff :: (Monad m, FsOps m)
@@ -213,17 +213,17 @@ diff :: (Monad m, FsOps m)
     -> [RootedDirTree ()]
     -> AstowMonadT m [(OsPath, OsPath)]
 diff cx = visitFiles checker
-    where   checker sp pp = do
+    where   checker sp tgtP = do
                 let sp' = acStowDir cx </> sp
-                    pp' = acLiveDir cx </> pp
-                e <- foDoesFileExist pp'
+                    tgtP' = acTargetDir cx </> tgtP
+                e <- foDoesFileExist tgtP'
                 if not e then
-                    return [(sp', pp')]
+                    return [(sp', tgtP')]
                 else do
-                    same <- foFilesHaveSameContent sp' pp'
-                    return $ if same then [] else [(sp', pp')]
+                    same <- foFilesHaveSameContent sp' tgtP'
+                    return $ if same then [] else [(sp', tgtP')]
 
--- | Diff with IO: runs @diff -uN live stow@ for each differing file.
+-- | Diff with IO: runs @diff -uN target stow@ for each differing file.
 --
 -- The exit code from @diff@ is ignored since 1 (files differ) is the
 -- normal case here.  Output goes directly to stdout.
@@ -233,16 +233,16 @@ diffIO :: (Monad m, FsOps m, MonadIO m)
     -> AstowMonadT m ()
 diffIO cx ts = do
     pairs <- diff cx ts
-    forM_ pairs $ \(sp', pp') ->
+    forM_ pairs $ \(sp', tgtP') ->
         liftIO $ void $ rawSystem "diff"
-            ["-uN", osPathToString pp', osPathToString sp']
+            ["-uN", osPathToString tgtP', osPathToString sp']
 
 -- Internal helper functions.
 
 -- | Visit each file and execute an action on it.
 --
---   The visitor function takes two paths, one for the file in staging,
---   and the other one for the corresponding file in production.
+--   The visitor function takes two paths, one for the file in the stow
+--   directory, and the other one for the corresponding file in the target.
 --
 --   Only proper files are visited, not directories.
 visitFilesSingle :: (Monoid a, Monad m)

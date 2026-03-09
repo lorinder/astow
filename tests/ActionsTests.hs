@@ -47,32 +47,32 @@ fileExists path tree = case getNode path tree of
 -- ---------------------------------------------------------------------------
 -- Shared fixtures
 
--- | Action context: stow root at "stow/", live root at "live/".
+-- | Action context: stow root at "stow/", target root at "target/".
 cx :: ActionContext
-cx = ActionContext { acStowDir = [osp|stow|], acLiveDir = [osp|live|] }
+cx = ActionContext { acStowDir = [osp|stow|], acTargetDir = [osp|target|] }
 
 -- | A single-file RootedDirTree with empty prefix and one file "f".
--- Stow path used by actions: stow/f   Live path: live/f
+-- Stow path used by actions: stow/f   Target path: target/f
 treeSingle :: [RootedDirTree ()]
 treeSingle = [RootedDirTree mempty (Dir $ M.singleton [osp|f|] (File ()))]
 
--- | Stow has "f" = "v1"; live has no entry for "f".
+-- | Stow has "f" = "v1"; target has no entry for "f".
 fsStowOnly :: DirTree String
 fsStowOnly = Dir $ M.singleton [osp|stow|]
     (Dir $ M.singleton [osp|f|] (File "v1"))
 
--- | Stow has "f" = "v1"; live has "f" = "v1" (same content).
+-- | Stow has "f" = "v1"; target has "f" = "v1" (same content).
 fsSame :: DirTree String
 fsSame = Dir $ M.fromList
-    [ ([osp|stow|], Dir $ M.singleton [osp|f|] (File "v1"))
-    , ([osp|live|], Dir $ M.singleton [osp|f|] (File "v1"))
+    [ ([osp|stow|],   Dir $ M.singleton [osp|f|] (File "v1"))
+    , ([osp|target|], Dir $ M.singleton [osp|f|] (File "v1"))
     ]
 
--- | Stow has "f" = "v1"; live has "f" = "v2" (contents differ).
+-- | Stow has "f" = "v1"; target has "f" = "v2" (contents differ).
 fsDiffer :: DirTree String
 fsDiffer = Dir $ M.fromList
-    [ ([osp|stow|], Dir $ M.singleton [osp|f|] (File "v1"))
-    , ([osp|live|], Dir $ M.singleton [osp|f|] (File "v2"))
+    [ ([osp|stow|],   Dir $ M.singleton [osp|f|] (File "v1"))
+    , ([osp|target|], Dir $ M.singleton [osp|f|] (File "v2"))
     ]
 
 -- | A tree with one level of subdirectory: top, sub/a, sub/b.
@@ -86,7 +86,7 @@ treeNested = [RootedDirTree mempty
             ])
         ])]
 
--- | Stow has top="v1", sub/a="v2", sub/b="v3"; live is empty.
+-- | Stow has top="v1", sub/a="v2", sub/b="v3"; target is empty.
 fsNestedStowOnly :: DirTree String
 fsNestedStowOnly = Dir $ M.singleton [osp|stow|]
     (Dir $ M.fromList
@@ -97,7 +97,7 @@ fsNestedStowOnly = Dir $ M.singleton [osp|stow|]
             ])
         ])
 
--- | Stow and live have identical content for treeNested.
+-- | Stow and target have identical content for treeNested.
 fsNestedSame :: DirTree String
 fsNestedSame = Dir $ M.fromList
     [ ([osp|stow|], Dir $ M.fromList
@@ -107,7 +107,7 @@ fsNestedSame = Dir $ M.fromList
             , ([osp|b|], File "v3")
             ])
         ])
-    , ([osp|live|], Dir $ M.fromList
+    , ([osp|target|], Dir $ M.fromList
         [ ([osp|top|], File "v1")
         , ([osp|sub|], Dir $ M.fromList
             [ ([osp|a|], File "v2")
@@ -116,7 +116,7 @@ fsNestedSame = Dir $ M.fromList
         ])
     ]
 
--- | treeNested: live/sub/a differs from stow; everything else is identical.
+-- | treeNested: target/sub/a differs from stow; everything else is identical.
 fsNestedDiffer :: DirTree String
 fsNestedDiffer = Dir $ M.fromList
     [ ([osp|stow|], Dir $ M.fromList
@@ -126,7 +126,7 @@ fsNestedDiffer = Dir $ M.fromList
             , ([osp|b|], File "v3")
             ])
         ])
-    , ([osp|live|], Dir $ M.fromList
+    , ([osp|target|], Dir $ M.fromList
         [ ([osp|top|], File "v1")
         , ([osp|sub|], Dir $ M.fromList
             [ ([osp|a|], File "MODIFIED")
@@ -141,7 +141,7 @@ treeDeep = [RootedDirTree mempty
     (Dir $ M.singleton [osp|x|]
         (Dir $ M.singleton [osp|y|] (File ())))]
 
--- | Stow has x/y="deep"; live is empty.
+-- | Stow has x/y="deep"; target is empty.
 fsDeepStowOnly :: DirTree String
 fsDeepStowOnly = Dir $ M.singleton [osp|stow|]
     (Dir $ M.singleton [osp|x|]
@@ -164,7 +164,7 @@ tests = do
 -- manifest
 --
 -- manifest just collects paths from the RootedDirTrees; it never touches
--- the live filesystem, so an empty DirTree suffices as the initial state.
+-- the target filesystem, so an empty DirTree suffices as the initial state.
 
 manifestTests :: SpecWith ()
 manifestTests = do
@@ -172,7 +172,7 @@ manifestTests = do
         let (fa, _) = runFake (Dir M.empty) (manifest cx [])
         fa `shouldBe` Completed True []
 
-    it "single file returns its stow-relative path as text" $ do
+    it "single file returns its package-relative path as text" $ do
         let (fa, _) = runFake (Dir M.empty) (manifest cx treeSingle)
         fa `shouldBe` Completed True ["f"]
 
@@ -214,7 +214,7 @@ statusTests = do
         let (fa, _) = runFake fsSame (status cx [])
         fa `shouldBe` Completed True []
 
-    it "file missing from live is reported as [MISSING]" $ do
+    it "file missing from target is reported as [MISSING]" $ do
         let (fa, _) = runFake fsStowOnly (status cx treeSingle)
         fa `shouldBe` Completed True ["[MISSING] f"]
 
@@ -226,7 +226,7 @@ statusTests = do
         let (fa, _) = runFake fsDiffer (status cx treeSingle)
         fa `shouldBe` Completed True ["[DIFFERS] f"]
 
-    it "nested tree missing from live: all files reported as [MISSING]" $ do
+    it "nested tree missing from target: all files reported as [MISSING]" $ do
         let (fa, _) = runFake fsNestedStowOnly (status cx treeNested)
         fa `shouldBe` Completed True ["[MISSING] sub/a", "[MISSING] sub/b", "[MISSING] top"]
 
@@ -243,20 +243,20 @@ statusTests = do
 
 pushTests :: SpecWith ()
 pushTests = do
-    it "file absent from live is copied there" $ do
+    it "file absent from target is copied there" $ do
         let (fa, finalFs) = runFake fsStowOnly (push cx treeSingle)
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|f|]] finalFs `shouldBe` Just "v1"
+        fileAt [[osp|target|], [osp|f|]] finalFs `shouldBe` Just "v1"
 
-    it "file with the same content in live is left unchanged" $ do
+    it "file with the same content in target is left unchanged" $ do
         let (fa, finalFs) = runFake fsSame (push cx treeSingle)
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|f|]] finalFs `shouldBe` Just "v1"
+        fileAt [[osp|target|], [osp|f|]] finalFs `shouldBe` Just "v1"
 
-    it "file with different content in live is overwritten with stow version" $ do
+    it "file with different content in target is overwritten with package version" $ do
         let (fa, finalFs) = runFake fsDiffer (push cx treeSingle)
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|f|]] finalFs `shouldBe` Just "v1"
+        fileAt [[osp|target|], [osp|f|]] finalFs `shouldBe` Just "v1"
 
     it "stow file is not modified by push" $ do
         let (_, finalFs) = runFake fsStowOnly (push cx treeSingle)
@@ -265,45 +265,45 @@ pushTests = do
     it "empty tree list leaves filesystem unchanged" $ do
         let (fa, finalFs) = runFake fsSame (push cx [])
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|f|]] finalFs `shouldBe` Just "v1"
+        fileAt [[osp|target|], [osp|f|]] finalFs `shouldBe` Just "v1"
 
-    it "nested tree: all files including those in subdirs are copied to live" $ do
+    it "nested tree: all files including those in subdirs are copied to target" $ do
         let (fa, finalFs) = runFake fsNestedStowOnly (push cx treeNested)
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|top|]] finalFs `shouldBe` Just "v1"
-        fileAt [[osp|live|], [osp|sub|], [osp|a|]] finalFs `shouldBe` Just "v2"
-        fileAt [[osp|live|], [osp|sub|], [osp|b|]] finalFs `shouldBe` Just "v3"
+        fileAt [[osp|target|], [osp|top|]] finalFs `shouldBe` Just "v1"
+        fileAt [[osp|target|], [osp|sub|], [osp|a|]] finalFs `shouldBe` Just "v2"
+        fileAt [[osp|target|], [osp|sub|], [osp|b|]] finalFs `shouldBe` Just "v3"
 
     it "deeply nested tree: file is copied through two directory levels" $ do
         let (fa, finalFs) = runFake fsDeepStowOnly (push cx treeDeep)
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|x|], [osp|y|]] finalFs `shouldBe` Just "deep"
+        fileAt [[osp|target|], [osp|x|], [osp|y|]] finalFs `shouldBe` Just "deep"
 
 -- ---------------------------------------------------------------------------
 -- pull
 
 pullTests :: SpecWith ()
 pullTests = do
-    it "file with the same content in live leaves stow unchanged" $ do
+    it "file with the same content in target leaves stow unchanged" $ do
         let (fa, finalFs) = runFake fsSame (pull cx treeSingle)
         fa `shouldBe` Completed True ()
         fileAt [[osp|stow|], [osp|f|]] finalFs `shouldBe` Just "v1"
 
-    it "file differing in live overwrites the stow copy" $ do
+    it "file differing in target overwrites the stow copy" $ do
         let (fa, finalFs) = runFake fsDiffer (pull cx treeSingle)
         fa `shouldBe` Completed True ()
         fileAt [[osp|stow|], [osp|f|]] finalFs `shouldBe` Just "v2"
 
-    it "file missing from live is deleted from stow" $ do
+    it "file missing from target is deleted from stow" $ do
         let (fa, finalFs) = runFake fsStowOnly (pull cx treeSingle)
         fa `shouldBe` Completed True ()
         fileExists [[osp|stow|], [osp|f|]] finalFs `shouldBe` False
 
-    it "live file is not modified by pull" $ do
+    it "target file is not modified by pull" $ do
         let (_, finalFs) = runFake fsDiffer (pull cx treeSingle)
-        fileAt [[osp|live|], [osp|f|]] finalFs `shouldBe` Just "v2"
+        fileAt [[osp|target|], [osp|f|]] finalFs `shouldBe` Just "v2"
 
-    it "nested tree: differing file in subdirectory is updated from live" $ do
+    it "nested tree: differing file in subdirectory is updated from target" $ do
         let (fa, finalFs) = runFake fsNestedDiffer (pull cx treeNested)
         fa `shouldBe` Completed True ()
         fileAt [[osp|stow|], [osp|sub|], [osp|a|]] finalFs `shouldBe` Just "MODIFIED"
@@ -318,12 +318,12 @@ pullTests = do
 
 deleteTests :: SpecWith ()
 deleteTests = do
-    it "existing live file is removed" $ do
+    it "existing target file is removed" $ do
         let (fa, finalFs) = runFake fsSame (delete cx treeSingle)
         fa `shouldBe` Completed True ()
-        fileExists [[osp|live|], [osp|f|]] finalFs `shouldBe` False
+        fileExists [[osp|target|], [osp|f|]] finalFs `shouldBe` False
 
-    it "absent live file causes no error" $ do
+    it "absent target file causes no error" $ do
         let (fa, _) = runFake fsStowOnly (delete cx treeSingle)
         fa `shouldBe` Completed True ()
 
@@ -331,30 +331,30 @@ deleteTests = do
         let (_, finalFs) = runFake fsSame (delete cx treeSingle)
         fileAt [[osp|stow|], [osp|f|]] finalFs `shouldBe` Just "v1"
 
-    it "nested tree: files in subdirs are removed from live" $ do
+    it "nested tree: files in subdirs are removed from target" $ do
         let (fa, finalFs) = runFake fsNestedSame (delete cx treeNested)
         fa `shouldBe` Completed True ()
-        fileExists [[osp|live|], [osp|sub|], [osp|a|]] finalFs `shouldBe` False
-        fileExists [[osp|live|], [osp|sub|], [osp|b|]] finalFs `shouldBe` False
-        fileExists [[osp|live|], [osp|top|]] finalFs `shouldBe` False
+        fileExists [[osp|target|], [osp|sub|], [osp|a|]] finalFs `shouldBe` False
+        fileExists [[osp|target|], [osp|sub|], [osp|b|]] finalFs `shouldBe` False
+        fileExists [[osp|target|], [osp|top|]] finalFs `shouldBe` False
 
 -- ---------------------------------------------------------------------------
 -- symlink
 --
 -- In FakeFsOps, foCreateFileLink = foCopyFileWithMetadata, so symlink
--- is tested as a copy to the live path.
+-- is tested as a copy to the target path.
 
 symlinkTests :: SpecWith ()
 symlinkTests = do
-    it "creates a link at the live path when live is absent" $ do
+    it "creates a link at the target path when target is absent" $ do
         let (fa, finalFs) = runFake fsStowOnly (symlink cx treeSingle)
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|f|]] finalFs `shouldBe` Just "v1"
+        fileAt [[osp|target|], [osp|f|]] finalFs `shouldBe` Just "v1"
 
-    it "overwrites an existing live file" $ do
+    it "overwrites an existing target file" $ do
         let (fa, finalFs) = runFake fsDiffer (symlink cx treeSingle)
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|f|]] finalFs `shouldBe` Just "v1"
+        fileAt [[osp|target|], [osp|f|]] finalFs `shouldBe` Just "v1"
 
     it "stow file is not modified by symlink" $ do
         let (_, finalFs) = runFake fsStowOnly (symlink cx treeSingle)
@@ -363,9 +363,9 @@ symlinkTests = do
     it "nested tree: creates links for all files including those in subdirs" $ do
         let (fa, finalFs) = runFake fsNestedStowOnly (symlink cx treeNested)
         fa `shouldBe` Completed True ()
-        fileAt [[osp|live|], [osp|top|]] finalFs `shouldBe` Just "v1"
-        fileAt [[osp|live|], [osp|sub|], [osp|a|]] finalFs `shouldBe` Just "v2"
-        fileAt [[osp|live|], [osp|sub|], [osp|b|]] finalFs `shouldBe` Just "v3"
+        fileAt [[osp|target|], [osp|top|]] finalFs `shouldBe` Just "v1"
+        fileAt [[osp|target|], [osp|sub|], [osp|a|]] finalFs `shouldBe` Just "v2"
+        fileAt [[osp|target|], [osp|sub|], [osp|b|]] finalFs `shouldBe` Just "v3"
 
 -- ---------------------------------------------------------------------------
 -- diff
@@ -376,11 +376,11 @@ diffTests = do
         let (fa, _) = runFake (Dir M.empty) (diff cx [])
         fa `shouldBe` Completed True []
 
-    it "file missing from live is included as a pair" $ do
+    it "file missing from target is included as a pair" $ do
         let (fa, _) = runFake fsStowOnly (diff cx treeSingle)
         fa `shouldBe` Completed True
-            [( [osp|stow|] </> [osp|f|]
-             , [osp|live|] </> [osp|f|] )]
+            [( [osp|stow|]   </> [osp|f|]
+             , [osp|target|] </> [osp|f|] )]
 
     it "file with same content produces no pair" $ do
         let (fa, _) = runFake fsSame (diff cx treeSingle)
@@ -389,18 +389,18 @@ diffTests = do
     it "file with different content is included as a pair" $ do
         let (fa, _) = runFake fsDiffer (diff cx treeSingle)
         fa `shouldBe` Completed True
-            [( [osp|stow|] </> [osp|f|]
-             , [osp|live|] </> [osp|f|] )]
+            [( [osp|stow|]   </> [osp|f|]
+             , [osp|target|] </> [osp|f|] )]
 
-    it "nested tree missing from live: all files included" $ do
+    it "nested tree missing from target: all files included" $ do
         let (fa, _) = runFake fsNestedStowOnly (diff cx treeNested)
         fa `shouldBe` Completed True
-            [ ( [osp|stow|] </> [osp|sub|] </> [osp|a|]
-              , [osp|live|] </> [osp|sub|] </> [osp|a|] )
-            , ( [osp|stow|] </> [osp|sub|] </> [osp|b|]
-              , [osp|live|] </> [osp|sub|] </> [osp|b|] )
-            , ( [osp|stow|] </> [osp|top|]
-              , [osp|live|] </> [osp|top|] )
+            [ ( [osp|stow|]   </> [osp|sub|] </> [osp|a|]
+              , [osp|target|] </> [osp|sub|] </> [osp|a|] )
+            , ( [osp|stow|]   </> [osp|sub|] </> [osp|b|]
+              , [osp|target|] </> [osp|sub|] </> [osp|b|] )
+            , ( [osp|stow|]   </> [osp|top|]
+              , [osp|target|] </> [osp|top|] )
             ]
 
     it "nested tree identical everywhere: no pairs" $ do
@@ -410,5 +410,5 @@ diffTests = do
     it "nested tree with one differing file: only that pair is returned" $ do
         let (fa, _) = runFake fsNestedDiffer (diff cx treeNested)
         fa `shouldBe` Completed True
-            [( [osp|stow|] </> [osp|sub|] </> [osp|a|]
-             , [osp|live|] </> [osp|sub|] </> [osp|a|] )]
+            [( [osp|stow|]   </> [osp|sub|] </> [osp|a|]
+             , [osp|target|] </> [osp|sub|] </> [osp|a|] )]
