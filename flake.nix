@@ -15,7 +15,11 @@
         };
 
         # haskell-flake doesn't set the default package, but you can do it here.
-        packages.default = self'.packages.astow;
+        packages.default = self'.packages.astow.overrideAttrs (old: {
+          postInstall = (old.postInstall or "") + ''
+            install -Dm644 ${./doc/astow.1} $out/share/man/man1/astow.1
+          '';
+        });
       };
     };
 }

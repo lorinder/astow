@@ -1,0 +1,188 @@
+.TH ASTOW 1 "2026-03-08" "astow" "User Commands"
+.SH NAME
+astow \- copy-based alternative to GNU stow
+.SH SYNOPSIS
+.B astow
+[\fIOPTIONS\fR]
+.I COMMAND
+[\fIDIRS\fR...]
+.SH DESCRIPTION
+.B astow
+manages a union of file system trees by copying files between a
+.I stow directory
+and a
+.I target directory.
+.PP
+Unlike GNU stow,
+.B astow
+copies files by default rather than creating symlinks.
+It also does not perform directory folding, which avoids the associated
+class of subtle and potentially dangerous bugs.
+.PP
+.B astow
+must be run from within the stow directory.
+The stow directory is the current working directory; the target directory
+is its parent.
+For example, if the stow directory is
+.IR ~/dotfiles ,
+the target directory is
+.IR ~/ .
+.PP
+When
+.I DIRS
+is omitted, all non-hidden immediate subdirectories of the stow directory
+are used.
+Paths given as
+.I DIRS
+may be subtrees (e.g.\&
+.IR pkg/etc/foo )
+to restrict the operation to a subtree; the root component of such a path
+still determines how files are mapped into the live directory.
+Paths must not contain
+.B ..
+components.
+.SH OPTIONS
+.TP
+.B \-\-dry\-run
+Simulate all operations without writing to, creating, or removing any files
+on disk.
+.TP
+.B \-\-debug\-log\-fsops
+Log every filesystem operation to
+.I stderr
+as it is executed.
+.TP
+.B \-h\fR,\fB \-\-help
+Show a brief usage summary and exit.
+.SH COMMANDS
+.TP
+.B status [\fIDIRS\fR...]
+Compare files in the stow directory to their counterparts in the target directory
+and report any that are missing or differ in content.
+Each differing file is printed on a line prefixed with either
+.B [MISSING]
+(file absent from target) or
+.B [DIFFERS]
+(file present but content differs).
+Files that are identical in both locations produce no output.
+.TP
+.B push [\fIDIRS\fR...]
+Copy files from the stow directory into the target directory.
+Files absent from the target are created; files whose content differs are
+overwritten.
+Files already identical in both locations are left untouched.
+Intermediate directories are created as needed.
+.TP
+.B pull [\fIDIRS\fR...]
+Synchronise the stow directory from the target directory.
+Files in the target directory whose content differs from the stow directory are
+copied back into the stow directory, overwriting the stow copy.
+Stow files whose counterpart is absent from the target are removed from
+the stow directory.
+To capture a file that exists in the target but not yet in the stow directory,
+supply its path explicitly as a
+.I DIRS
+argument (e.g.\&
+.BR "astow pull bash/.bashrc" ).
+.B pull
+will then copy it from the target into the stow directory, creating the
+necessary intermediate directories.
+.TP
+.B symlink [\fIDIRS\fR...]
+Create symlinks in the target directory pointing at the corresponding files in
+the stow directory, rather than copying them.
+Intermediate directories are created as needed.
+.TP
+.B delete [\fIDIRS\fR...]
+Remove from the target directory every file that is present in the stow
+directory.
+Files already absent from the target are silently skipped.
+.TP
+.B manifest [\fIDIRS\fR...]
+Print the path of every file in the specified packages, one per line,
+relative to the stow directory root.
+No filesystem operations are performed on the target directory.
+.TP
+.B diff [\fIDIRS\fR...]
+For each file that is absent from the target or differs in content, run
+.BR diff (1)
+with flags
+.B \-uN
+comparing the target copy (or an empty file, if absent) against the stow
+copy.
+Output goes to
+.IR stdout .
+Files with identical content are omitted.
+.SH EXAMPLES
+Push all packages from the current stow directory to the target:
+.PP
+.RS 4
+.nf
+cd ~/dotfiles
+astow push
+.fi
+.RE
+.PP
+Show status of the
+.I nvim
+and
+.I zsh
+packages only:
+.PP
+.RS 4
+.nf
+astow status nvim zsh
+.fi
+.RE
+.PP
+Dry-run a push to see what would be copied without touching anything:
+.PP
+.RS 4
+.nf
+astow --dry-run push
+.fi
+.RE
+.PP
+View a unified diff of every file that has drifted from the stow directory:
+.PP
+.RS 4
+.nf
+astow diff
+.fi
+.RE
+.PP
+Remove all target files managed by the
+.I nvim
+package:
+.PP
+.RS 4
+.nf
+astow delete nvim
+.fi
+.RE
+.PP
+Capture a file from the target into the stow directory for the first time,
+even though it has no existing stow counterpart:
+.PP
+.RS 4
+.nf
+astow pull bash/.bashrc
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+All operations completed successfully.
+.TP
+.B 1
+Execution was aborted due to a hard error (e.g.\& an invalid argument).
+.TP
+.B 2
+Execution completed but one or more soft errors were encountered.
+.SH SEE ALSO
+.BR stow (8),
+.BR diff (1),
+.BR cp (1),
+.BR ln (1)
+.SH AUTHORS
+Written by the astow contributors.
