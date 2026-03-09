@@ -1,7 +1,6 @@
 module DiagnosticTests (tests) where
 
 import qualified Data.Text          as T
-import System.IO.Error              (userError)
 import Test.Hspec
 
 import Diagnostic
