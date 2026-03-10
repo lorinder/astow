@@ -1,10 +1,12 @@
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE LambdaCase #-}
 
 module DirTreeTests (tests) where
 
 import Data.Functor.Identity          (Identity(..), runIdentity)
 import Data.List.NonEmpty             (NonEmpty(..))
 import Data.Maybe                     (isJust, isNothing)
+import Data.These                     (These(..))
 import qualified Data.Map.Strict      as M
 import qualified Control.Monad.Trans.Writer.Strict as W
 import Control.Monad.State.Strict     (runState)
@@ -70,7 +72,8 @@ tests = do
     describe "getNode"         getNodeTests
     describe "walkM"           walkMTests
     describe "modifyDirentWith" modifyTests
-    describe "merge"           mergeTests
+    describe "theseMergeM"     theseMergeMTests
+    describe "mergeRight"      mergeRightTests
     describe "readFromFs"      readFromFsTests
 
 -- ---------------------------------------------------------------------------
@@ -211,95 +214,146 @@ modifyTests = do
                 _              -> False
 
 -- ---------------------------------------------------------------------------
--- merge
+-- theseMergeM
 
-mergeTests :: SpecWith ()
-mergeTests = do
+theseMergeMTests :: SpecWith ()
+theseMergeMTests = do
     let root = [osp|root|]
 
     it "merges two Files, passing Both to the merger" $ do
-        let result = runPure $ merge
-                (\_ lra -> case lra of
-                    Both l r -> return (l, r)
-                    _        -> abort)
+        let result = runPure $ theseMergeM
                 root
-                (File (1 :: Int))
-                (File (2 :: Int))
-        shouldSucceedWith "file-file" result $ \x -> case x of
-            File (1, 2) -> True
-            _           -> False
+                (These (File (1 :: Int)) (File (2 :: Int)))
+        shouldSucceedWith "file-file" result $ \case
+            File (These 1 2)    -> True
+            _                   -> False
 
     it "fails on a File/Dir type mismatch" $ do
-        let result = runPure $ merge
-                (\_ _ -> return ())
+        let result = runPure $ theseMergeM
                 root
-                (File ())
-                (Dir M.empty :: DirTree ())
+                (These  (File ())
+                        (Dir M.empty :: DirTree ()))
         shouldFail result
 
     it "merges two empty Dirs into an empty Dir" $ do
-        let result = runPure $ merge
-                (\_ _ -> return ())
+        let result = runPure $ theseMergeM
                 root
-                (Dir M.empty :: DirTree ())
-                (Dir M.empty :: DirTree ())
+                (These  (Dir M.empty :: DirTree ())
+                        (Dir M.empty :: DirTree ()))
         shouldSucceedWith "empty dirs" result $ \x -> case x of
             Dir m | M.null m -> True
             _                -> False
 
     it "left-only entries are passed as LeftOnly to the merger" $ do
-        let result = runPure $ merge
-                (\_ lra -> case lra of
-                    LeftOnly l -> return l
-                    _          -> abort)
+        let result = runPure $ theseMergeM
                 root
-                (Dir $ M.singleton [osp|a|] (File (42 :: Int)))
-                (Dir M.empty)
+                (These  (Dir $ M.singleton [osp|a|] (File (42 :: Int)))
+                        (Dir M.empty))
         shouldSucceedWith "left-only" result $ \t ->
             case getNode [[osp|a|]] t of
-                Just (File 42) -> True
-                _              -> False
+                Just (File (This 42))   -> True
+                _                       -> False
 
     it "right-only entries are passed as RightOnly to the merger" $ do
-        let result = runPure $ merge
-                (\_ lra -> case lra of
-                    RightOnly r -> return r
-                    _           -> abort)
+        let result = runPure $ theseMergeM
                 root
-                (Dir M.empty)
-                (Dir $ M.singleton [osp|b|] (File (7 :: Int)))
+                (These  (Dir M.empty)
+                        (Dir $ M.singleton [osp|b|] (File (7 :: Int))))
         shouldSucceedWith "right-only" result $ \t ->
             case getNode [[osp|b|]] t of
-                Just (File 7) -> True
-                _             -> False
+                Just (File (That 7))    -> True
+                _                       -> False
 
     it "shared entries are passed as Both, results combined" $ do
-        let result = runPure $ merge
-                (\_ lra -> case lra of
-                    Both l r -> return (l + r)
-                    _        -> abort)
+        let result = runPure $ theseMergeM
                 root
-                (Dir $ M.singleton [osp|a|] (File (3 :: Int)))
-                (Dir $ M.singleton [osp|a|] (File (4 :: Int)))
+                (These  (Dir $ M.singleton [osp|a|] (File (3 :: Int)))
+                        (Dir $ M.singleton [osp|a|] (File (4 :: Int))))
         shouldSucceedWith "both" result $ \t ->
             case getNode [[osp|a|]] t of
-                Just (File 7) -> True
-                _             -> False
+                Just (File (These 3 4)) -> True
+                _                       -> False
 
     it "merges nested dirs recursively" $ do
         let left  = Dir $ M.singleton [osp|d|]
                         (Dir $ M.singleton [osp|f|] (File (1 :: Int)))
             right = Dir $ M.singleton [osp|d|]
                         (Dir $ M.singleton [osp|g|] (File (2 :: Int)))
-            result = runPure $ merge
-                (\_ lra -> case lra of
-                    LeftOnly  l -> return l
-                    RightOnly r -> return r
-                    Both l _    -> return l)
-                root left right
+            result = runPure $ theseMergeM
+                root (These left right)
         shouldSucceedWith "nested" result $ \t ->
             isJust (getNode [[osp|d|], [osp|f|]] t) &&
             isJust (getNode [[osp|d|], [osp|g|]] t)
+
+-- ---------------------------------------------------------------------------
+-- mergeRight
+
+mergeRightTests :: SpecWith ()
+mergeRightTests = do
+    it "right File wins over left File" $
+        case mergeRight (File (1 :: Int)) (File 2) of
+            File 2 -> return ()
+            other  -> expectationFailure $ "Expected File 2, got: " ++ show other
+
+    it "right Dir wins over left File (type mismatch)" $
+        case mergeRight (File (1 :: Int)) (Dir M.empty) of
+            Dir m | M.null m -> return ()
+            other            -> expectationFailure $ "Expected empty Dir, got: " ++ show other
+
+    it "right File wins over left Dir (type mismatch)" $
+        case mergeRight (Dir M.empty :: DirTree Int) (File 9) of
+            File 9 -> return ()
+            other  -> expectationFailure $ "Expected File 9, got: " ++ show other
+
+    it "two empty Dirs merge to an empty Dir" $
+        case mergeRight (Dir M.empty :: DirTree ()) (Dir M.empty) of
+            Dir m | M.null m -> return ()
+            other            -> expectationFailure $ "Expected empty Dir, got: " ++ show other
+
+    it "left-only entries are preserved" $
+        let result = mergeRight
+                (Dir $ M.singleton [osp|a|] (File (42 :: Int)))
+                (Dir M.empty)
+        in case getNode [[osp|a|]] result of
+            Just (File 42) -> return ()
+            other          -> expectationFailure $ "Expected File 42 at a, got: " ++ show other
+
+    it "right-only entries are present in result" $
+        let result = mergeRight
+                (Dir M.empty :: DirTree Int)
+                (Dir $ M.singleton [osp|b|] (File 7))
+        in case getNode [[osp|b|]] result of
+            Just (File 7) -> return ()
+            other         -> expectationFailure $ "Expected File 7 at b, got: " ++ show other
+
+    it "right entry wins for shared keys" $
+        let result = mergeRight
+                (Dir $ M.singleton [osp|a|] (File (3 :: Int)))
+                (Dir $ M.singleton [osp|a|] (File 4))
+        in case getNode [[osp|a|]] result of
+            Just (File 4) -> return ()
+            other         -> expectationFailure $ "Expected File 4 at a, got: " ++ show other
+
+    it "merges nested dirs recursively, keeping entries from both sides" $
+        let left  = Dir $ M.singleton [osp|d|]
+                        (Dir $ M.singleton [osp|f|] (File (1 :: Int)))
+            right = Dir $ M.singleton [osp|d|]
+                        (Dir $ M.singleton [osp|g|] (File 2))
+            result = mergeRight left right
+        in case (getNode [[osp|d|], [osp|f|]] result,
+                 getNode [[osp|d|], [osp|g|]] result) of
+            (Just (File 1), Just (File 2)) -> return ()
+            other -> expectationFailure $ "Expected both nested files, got: " ++ show other
+
+    it "right nested file overwrites left nested file at same path" $
+        let left  = Dir $ M.singleton [osp|d|]
+                        (Dir $ M.singleton [osp|f|] (File (1 :: Int)))
+            right = Dir $ M.singleton [osp|d|]
+                        (Dir $ M.singleton [osp|f|] (File 99))
+            result = mergeRight left right
+        in case getNode [[osp|d|], [osp|f|]] result of
+            Just (File 99) -> return ()
+            other          -> expectationFailure $ "Expected File 99, got: " ++ show other
 
 -- ---------------------------------------------------------------------------
 -- readFromFs

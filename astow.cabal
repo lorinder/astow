@@ -51,6 +51,7 @@ library
       , os-string
       , process
       , text
+      , these
       , transformers
 
 
@@ -95,6 +96,7 @@ test-suite astow-tests
       , mtl
       , QuickCheck
       , text
+      , these
       , transformers
 
 -- vim:et:ts=4:sw=4

@@ -14,14 +14,17 @@ module DirTree (
   , walkM
 
 -- * Merging
+  , mergeRight
   , MergeFun
-  , LeftRightAttribs(..)
-  , merge
+  , theseMergeM
+  , mergeDirentsM
 ) where
 
 import Control.Monad
+import Control.Monad.Identity
 import Data.List.NonEmpty                           (NonEmpty(..))
 import Data.Maybe
+import Data.These                                   (These(..))
 import qualified Data.Map.Strict                    as M
 
 import System.OsPath                                ((</>), OsPath)
@@ -34,6 +37,7 @@ import FileUtils
 
 -- | Directory tree representation.
 data DirTree a = File a | Dir (M.Map OsPath (DirTree a))
+    deriving(Eq)
 
 -- display for debugging
 instance Show a => Show (DirTree a) where
@@ -202,7 +206,7 @@ modifyDirentWith f (p :| ps) tr =
 --   arguments receives the path of the visitor function and the
 --   attribute stored in the node.
 --
---   Returned is a linearlized list of the visit results.
+--   Returned is a linearized list of the visit results.
 walkM :: (Monad m)
     => OsPath                               -- ^ base path
     -> (OsPath -> a -> m b)                 -- ^ visiting function
@@ -213,85 +217,116 @@ walkM path f (Dir entsMap) = do
     let ents = M.toAscList entsMap
     concat <$> forM ents (\(fn, item) -> walkM (path </> fn) f item)
 
--- | Node attributes for merging trees.
+-- | Merge a DirTree with the right hand side breaking ties.
 --
--- Merging of a file node means that it must be present in either the
--- left tree, the right tree, or both.
-data LeftRightAttribs a b
-    = LeftOnly a
-      | RightOnly b
-      | Both a b
+-- The left and right DirTree need to have the same payload type.  Files
+-- and directories appearing in only one tree appear unchanged in the
+-- merged trees. Directories appearing in both have their entries
+-- recursively merged with the same rule.  Other nodes that appear in
+-- both trees take the node type and payload types of the right.  This
+-- is in particular true, if a node appears in both trees but is of a
+-- different type.
+mergeRight
+    :: DirTree a        -- ^ left tree
+    -> DirTree a        -- ^ right tree
+    -> DirTree a        -- ^ merged tree
+mergeRight l r = runIdentity $ mergeRightM mempty (These l r)
+    where   mergeRightM :: Monad m
+                => OsPath
+                -> These (DirTree a) (DirTree a)
+                -> m (DirTree a)
+            mergeRightM _ (This x) = return x
+            mergeRightM _ (That y) = return y
+            mergeRightM p (These x y) = case (x, y) of
+                (Dir dx, Dir dy) -> Dir <$> mergeDirentsM mergeRightM p dx dy
+                (_, fy) -> return fy
 
--- | Attribute merger function.
+-- | Node merging function.
+--
+--   This is the custom node merging function that is supplied the
+--   merger.  The nodes passed are either individual nodes, when the
+--   node of one name only appears on either side.  Or they can be both
+--   Files, refering to corresponding File nodes in the trees to be
+--   merged. In special cases, one of them might be a directory and
+--   another one a file.  That case is an error in many uses of merging,
+--   and could be signaled through the monad m for example. 
+--
 type MergeFun m a b c =
     OsPath                                  -- ^ Path being merged
-    -> LeftRightAttribs a b                 -- ^ Attributes
-    -> AstowMonadT m c                      -- ^ combined attribute or error
+    -> These (DirTree a) (DirTree b)        -- ^ Nodes to merge
+    -> m (DirTree c)                        -- ^ combined attribute or error
 
--- | Merge two DirTrees.
-merge :: (Monad m)
-      => MergeFun m a b c                   -- ^ attribute merger
-      -> OsPath                             -- ^ root path to use
-      -> DirTree a                          -- ^ left tree
-      -> DirTree b                          -- ^ right tree
-      -> AstowMonadT m (DirTree c)          -- ^ combined tree
-merge f path (File l) (File r) = File <$> f path (Both l r)
-merge f path (Dir ls) (Dir rs) = do
-    Dir <$> mergeDirents f path ls rs
-merge _ path _ _ = do
-    tell1 $ Diagnostic ("Attempting to merge " <> osPathToText path)
-                (TextPayload $ "Node type mismatch")
-                Error
-    invalid $ Dir M.empty
-
+-- | Merge function that holds the result as a 'These'.
 --
--- merge helper functions functionality
+-- Each file node has the result stored as a 'These' a b.  Therefore,
+-- using a mapping over the functor of the related tree, any desired
+-- combination of the arguments can be implemented.
 --
+-- It is an error to try to merge incompatible node types with this
+-- function.
+theseMergeM :: Monad m
+    => OsPath
+    -> These (DirTree a) (DirTree b)
+    -> AstowMonadT m (DirTree (These a b))
+theseMergeM p (This x) = case x of
+    File fx -> return $ File (This fx)
+    Dir dx -> Dir <$> mergeDirentsM theseMergeM p dx M.empty
+theseMergeM p (That y) = case y of
+    File fy -> return $ File (That fy)
+    Dir dy -> Dir <$> mergeDirentsM theseMergeM p M.empty dy
+theseMergeM p (These x y) = case (x, y) of
+    (File fx, File fy) -> return $ File (These fx fy)
+    (Dir dx, Dir dy) -> Dir <$> mergeDirentsM theseMergeM p dx dy
+    _ -> do
+        tell1 $ Diagnostic ("merge " <> osPathToText p)
+                    (TextPayload "Incompatible node type") Error
+        abort
 
-mergeDirents :: forall m a b c. Monad m
+-- | Merge two directory listings.
+mergeDirentsM :: forall m a b c. Monad m
     => MergeFun m a b c
     -> OsPath
     -> M.Map OsPath (DirTree a)
     -> M.Map OsPath (DirTree b)
-    -> AstowMonadT m (M.Map OsPath (DirTree c))
-mergeDirents f path lmap rmap =
+    -> m (M.Map OsPath (DirTree c))
+mergeDirentsM mergeFn path lmap rmap =
     let lsOrig = M.toAscList lmap
         rsOrig = M.toAscList rmap
         mergeLists
             :: [(OsPath, DirTree a)]
             -> [(OsPath, DirTree b)]
-            -> AstowMonadT m [(OsPath, DirTree c)]
+            -> m [(OsPath, DirTree c)]
         mergeLists ls@((lname,lx):ls') rs@((rname,rx):rs') =
             case compare lname rname of
                 LT -> do
-                    l <- mergeLeft lname lx
+                    l <- mergeL lname lx
                     (l:) <$> mergeLists ls' rs
                 GT -> do
-                    r <- mergeRight rname rx
+                    r <- mergeR rname rx
                     (r:) <$> mergeLists ls rs'
                 EQ -> do
-                    merged <- merge f (path </> lname) lx rx
+                    merged <- mergeFn (path </> lname) (These lx rx)
                     ((lname,merged):) <$> mergeLists ls' rs'
         mergeLists ((lname,lx):ls') [] = do
-            l <- mergeLeft lname lx
+            l <- mergeL lname lx
             (l:) <$> mergeLists ls' []
         mergeLists [] ((rname,rx):rs') = do
-            r <- mergeRight rname rx
+            r <- mergeR rname rx
             (r:) <$> mergeLists [] rs'
         mergeLists [] [] = return []
-        mergeLeft :: OsPath -> DirTree a -> AstowMonadT m (OsPath, DirTree c)
-        mergeLeft lname (File lx) = do
-            x <- f (path </> lname) (LeftOnly lx)
-            return (lname, File x)
-        mergeLeft lname (Dir lents) = do
-            x <- mergeDirents f (path </> lname) lents M.empty
+        mergeL :: OsPath -> DirTree a -> m (OsPath, DirTree c)
+        mergeL lname lx@(File _) = do
+            x <- mergeFn (path </> lname) (This lx)
+            return (lname, x)
+        mergeL lname (Dir lents) = do
+            x <- mergeDirentsM mergeFn (path </> lname) lents M.empty
             return (lname, Dir x)
-        mergeRight :: OsPath -> DirTree b -> AstowMonadT m (OsPath, DirTree c)
-        mergeRight rname (File rx) = do
-            x <- f (path </> rname) (RightOnly rx)
-            return (rname, File x)
-        mergeRight rname (Dir rents) = do
-            x <- mergeDirents f (path </> rname) M.empty rents
+        mergeR :: OsPath -> DirTree b -> m (OsPath, DirTree c)
+        mergeR rname rx@(File _) = do
+            x <- mergeFn (path </> rname) (That rx)
+            return (rname, x)
+        mergeR rname (Dir rents) = do
+            x <- mergeDirentsM mergeFn (path </> rname) M.empty rents
             return (rname, Dir x)
     in  do
             lst <- mergeLists lsOrig rsOrig
