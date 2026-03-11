@@ -16,12 +16,12 @@ It also does not peform stow's folding, which is not only complicated to
 implement, but more importantly causes a number of problems, some of
 which can be dangerous and unobvious to track down.
 
-<!---  This is a goal, but still wishful thinking at the moment.
-
 ### How else does `astow` differ from GNU `stow`?
 
-`astow` is generally speaking a far simpler tool that can be built into
-a single static library.  GNU `stow` is written in perl, meaning that it
-requires a working perl installation to work.
-
---->
+`astow` can be built into a single static binary.  GNU `stow` is written
+in perl, meaning that it requires a working perl installation to work.
+`astow` is written in Haskell, and can be compiled into a single static
+binary with no dependencies.
+```
+nix build '.#astow-static'
+```

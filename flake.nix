@@ -32,6 +32,17 @@
               > $out/share/fish/vendor_completions.d/astow.fish
           '';
         });
+
+        # Fully static binary via musl.  Build with: nix build .#astow-static
+        packages.astow-static =
+          let
+            hp = pkgs.pkgsStatic.haskellPackages;
+          in
+            pkgs.haskell.lib.compose.justStaticExecutables
+              (pkgs.haskell.lib.compose.appendConfigureFlags [
+                "--ghc-option=-optl=-static"
+                "--ghc-option=-optl=-pthread"
+              ] (hp.callCabal2nix "astow" ./. { }));
       };
     };
 }
