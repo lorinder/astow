@@ -18,6 +18,18 @@
         packages.default = self'.packages.astow.overrideAttrs (old: {
           postInstall = (old.postInstall or "") + ''
             install -Dm644 ${./doc/astow.1} $out/share/man/man1/astow.1
+
+            install -Dm644 /dev/null $out/share/bash-completion/completions/astow
+            $out/bin/astow --bash-completion-script $out/bin/astow \
+              > $out/share/bash-completion/completions/astow
+
+            install -Dm644 /dev/null $out/share/zsh/site-functions/_astow
+            $out/bin/astow --zsh-completion-script $out/bin/astow \
+              > $out/share/zsh/site-functions/_astow
+
+            install -Dm644 /dev/null $out/share/fish/vendor_completions.d/astow.fish
+            $out/bin/astow --fish-completion-script $out/bin/astow \
+              > $out/share/fish/vendor_completions.d/astow.fish
           '';
         });
       };
