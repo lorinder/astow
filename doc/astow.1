@@ -19,14 +19,19 @@ copies files by default rather than creating symlinks.
 It also does not perform directory folding, which avoids the associated
 class of subtle and potentially dangerous bugs.
 .PP
-.B astow
-must be run from within the stow directory.
-The stow directory is the current working directory; the target directory
-is its parent.
+The default stow directory is the current working directory and the target
+directory is its parent.
 For example, if the stow directory is
 .IR ~/dotfiles ,
 the target directory is
 .IR ~/ .
+Both directories can be overridden with the
+.B \-d
+and
+.B \-t
+options, making it possible to run
+.B astow
+from a directory other than the stow directory.
 .PP
 When
 .I DIRS
@@ -42,6 +47,20 @@ Paths must not contain
 .B ..
 components.
 .SH OPTIONS
+.TP
+.BR \-d " " \fIDIR\fR ", " \-\-dir= \fIDIR\fR
+Use
+.I DIR
+as the stow directory instead of the current working directory.
+If
+.B \-t
+is not also given, the target directory defaults to the parent of
+.IR DIR .
+.TP
+.BR \-t " " \fIDIR\fR ", " \-\-target= \fIDIR\fR
+Use
+.I DIR
+as the target directory instead of the parent of the stow directory.
 .TP
 .B \-\-dry\-run
 Simulate all operations without writing to, creating, or removing any files
@@ -167,6 +186,22 @@ even though it has no existing stow counterpart:
 .RS 4
 .nf
 astow pull bash/.bashrc
+.fi
+.RE
+.PP
+Push from a stow directory that is not the current directory:
+.PP
+.RS 4
+.nf
+astow \-d ~/dotfiles push
+.fi
+.RE
+.PP
+Push to an explicit target directory:
+.PP
+.RS 4
+.nf
+astow \-d ~/dotfiles \-t /tmp/preview push
 .fi
 .RE
 .SH EXIT STATUS

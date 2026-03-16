@@ -36,6 +36,8 @@ data Command =
 data CmdLine = CmdLine {
         clDebugLogFsOps     :: Bool
       , clDryRun            :: Bool
+      , clStowDir           :: Maybe OsPath
+      , clTargetDir         :: Maybe OsPath
       , clCmd               :: Command
     } deriving (Show)
 
@@ -66,6 +68,14 @@ cmdLineParser = CmdLine
         <> help "Log filesystem operations on stderr")
     <*> switch ( long "dry-run"
         <> help "Simulate operations without writing to disk")
+    <*> optional (option osPathReader
+        ( long "dir" <> short 'd'
+        <> metavar "DIR"
+        <> help "Stow directory (default: current directory)"))
+    <*> optional (option osPathReader
+        ( long "target" <> short 't'
+        <> metavar "DIR"
+        <> help "Target directory (default: parent of stow directory)"))
     <*> subparser
         ( command "status"
             (info statusParser (progDesc "Sync status display"))
@@ -101,7 +111,9 @@ main = do
 
     -- create action context
     curdir <- getCurrentDirectory
-    let ac = ActionContext { acStowDir = curdir, acTargetDir = takeDirectory curdir }
+    let stowDir   = maybe curdir id (clStowDir cl)
+        targetDir = maybe (takeDirectory stowDir) id (clTargetDir cl)
+        ac = ActionContext { acStowDir = stowDir, acTargetDir = targetDir }
 
     -- process
     let cmd :: (Monad m, MonadIO m, FsOps m) => AstowMonadT m ()
