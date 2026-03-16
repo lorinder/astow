@@ -11,8 +11,6 @@ module Actions (
   , pullIO
   , delete
   , deleteIO
-  , symlink
-  , symlinkIO
   , manifest
   , manifestIO
   , diff
@@ -77,34 +75,41 @@ statusIO cx ts = do
     forM_ out (\l ->
         liftIO $ TIO.putStrLn l)
 
--- | Push (copy) files from the stow directory into the target directory.
+-- | Push files from the stow directory into the target directory.
 --
---   Files in the stow directory missing in the target are copied into the target;
---   files different in the target are overwritten with the updated
---   version.  Unchanged files are left alone.
+--   When @useSymlink@ is @False@, files are copied: missing files are created,
+--   changed files are overwritten, unchanged files are left alone.
+--
+--   When @useSymlink@ is @True@, symlinks pointing to the stow file are
+--   created in the target (unconditionally, replacing any existing entry).
 push :: (Monad m, FsOps m)
-    => ActionContext
+    => Bool             -- ^ use symlinks instead of copying
+    -> ActionContext
     -> [RootedDirTree ()]
     -> AstowMonadT m ()
-push cx = visitFiles pusher
+push useSymlink cx = visitFiles pusher
     where   pusher :: (Monad m, FsOps m)
                 => OsPath -> OsPath -> AstowMonadT m ()
             pusher sp tgtP = do
                 let sp' = acStowDir cx </> sp
                     tgtP' = acTargetDir cx </> tgtP
-                e <- foDoesFileExist tgtP'
-                doCopy <- if not e then
-                        return True
+                foCreateDirectoryIfMissing True $
+                    takeDirectory tgtP'
+                if useSymlink
+                    then foCreateFileLink sp' tgtP'
                     else do
-                        same <- foFilesHaveSameContent sp' tgtP'
-                        return (not same)
-                when doCopy $ do
-                    foCreateDirectoryIfMissing True $
-                        takeDirectory tgtP'
-                    foCopyFileWithMetadata sp' tgtP'
+                        e <- foDoesFileExist tgtP'
+                        doCopy <- if not e then
+                                return True
+                            else do
+                                same <- foFilesHaveSameContent sp' tgtP'
+                                return (not same)
+                        when doCopy $
+                            foCopyFileWithMetadata sp' tgtP'
 
 pushIO :: (Monad m, FsOps m, MonadIO m)
-    => ActionContext
+    => Bool
+    -> ActionContext
     -> [RootedDirTree ()]
     -> AstowMonadT m ()
 pushIO = push
@@ -177,27 +182,6 @@ deleteIO :: (Monad m, FsOps m, MonadIO m)
     -> AstowMonadT m ()
 deleteIO = delete
 
--- | Symlink files in the target directory to the stow directory.
-symlink :: (Monad m, FsOps m)
-    => ActionContext
-    -> [RootedDirTree ()]
-    -> AstowMonadT m ()
-symlink cx = visitFiles linker
-    where   linker :: (Monad m, FsOps m)
-                => OsPath -> OsPath -> AstowMonadT m ()
-            linker sp tgtP = do
-                let sp' = acStowDir cx </> sp
-                    tgtP' = acTargetDir cx </> tgtP
-                foCreateDirectoryIfMissing True $
-                    takeDirectory tgtP'
-                foCreateFileLink sp' tgtP'
-
-symlinkIO :: (Monad m, FsOps m, MonadIO m)
-    => ActionContext
-    -> [RootedDirTree ()]
-    -> AstowMonadT m ()
-symlinkIO = symlink
-    
 -- | Display a list of all files in a subpath.
 manifest :: (Monad m, FsOps m)
     => ActionContext

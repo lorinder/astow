@@ -117,7 +117,6 @@ tests = do
     describe "push"     pushTests
     describe "pull"     pullTests
     describe "delete"   deleteTests
-    describe "symlink"  symlinkTests
     describe "diff"     diffTests
 
 -- ---------------------------------------------------------------------------
@@ -182,22 +181,32 @@ statusTests = do
 pushTests :: SpecWith ()
 pushTests = do
     it "files with the same content in target are left unchanged" $ do
-        let (fa, finalFs) = runFake fsStowPushedN (push cx [srtNested])
+        let (fa, finalFs) = runFake fsStowPushedN (push False cx [srtNested])
         fa `shouldBe` Completed True ()
         finalFs `shouldBe` fsStowPushedN
 
     it "file with different content in target is overwritten with package version" $ do
-        let (fa, finalFs) = runFake fsStowDifferN (push cx [srtNested])
+        let (fa, finalFs) = runFake fsStowDifferN (push False cx [srtNested])
         fa `shouldBe` Completed True ()
         finalFs `shouldBe` fsStowPushedN
 
     it "empty tree list leaves filesystem unchanged" $ do
-        let (fa, finalFs) = runFake fsStowDifferN (push cx [])
+        let (fa, finalFs) = runFake fsStowDifferN (push False cx [])
         fa `shouldBe` Completed True ()
         finalFs `shouldBe` fsStowDifferN
 
     it "nested tree: all files including those in subdirs are copied to target" $ do
-        let (fa, finalFs) = runFake fsStowOnly (push cx [srtNested])
+        let (fa, finalFs) = runFake fsStowOnly (push False cx [srtNested])
+        fa `shouldBe` Completed True ()
+        finalFs `shouldBe` fsStowPushedN
+
+    it "symlink: creates a link at the target path when target is absent" $ do
+        let (fa, finalFs) = runFake fsStowOnly (push True cx [srtNested])
+        fa `shouldBe` Completed True ()
+        finalFs `shouldBe` fsStowPushedN
+
+    it "symlink: overwrites existing target files" $ do
+        let (fa, finalFs) = runFake fsStowDifferN (push True cx [srtNested])
         fa `shouldBe` Completed True ()
         finalFs `shouldBe` fsStowPushedN
 
@@ -234,24 +243,6 @@ deleteTests = do
 
     it "absent target file causes no error" $ do
         let (fa, finalFs) = runFake fsStowPushedN (delete cx [srtSingle])
-        fa `shouldBe` Completed True ()
-        finalFs `shouldBe` fsStowPushedN
-
--- ---------------------------------------------------------------------------
--- symlink
---
--- In FakeFsOps, foCreateFileLink = foCopyFileWithMetadata, so symlink
--- is tested as a copy to the target path.
-
-symlinkTests :: SpecWith ()
-symlinkTests = do
-    it "creates a link at the target path when target is absent" $ do
-        let (fa, finalFs) = runFake fsStowOnly (symlink cx [srtNested])
-        fa `shouldBe` Completed True ()
-        finalFs `shouldBe` fsStowPushedN
-
-    it "overwrites a existing target files" $ do
-        let (fa, finalFs) = runFake fsStowDifferN (symlink cx [srtNested])
         fa `shouldBe` Completed True ()
         finalFs `shouldBe` fsStowPushedN
 
