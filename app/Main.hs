@@ -70,11 +70,13 @@ cmdLineParser = CmdLine
     <*> optional (option osPathReader
         ( long "dir" <> short 'd'
         <> metavar "DIR"
-        <> help "Stow directory (default: current directory)"))
+        <> help "Stow directory (default: current directory)"
+        <> completer (bashCompleter "dir")))
     <*> optional (option osPathReader
         ( long "target" <> short 't'
         <> metavar "DIR"
-        <> help "Target directory (default: parent of stow directory)"))
+        <> help "Target directory (default: parent of stow directory)"
+        <> completer (bashCompleter "dir")))
     <*> subparser
         ( command "status"
             (info (helper <*> statusParser) (progDesc "Sync status display"))
