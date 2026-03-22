@@ -7,7 +7,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Writer.Strict (runWriterT)
 import Data.Text.IO (hPutStrLn)
 import Options.Applicative
-import System.Directory.OsPath (getCurrentDirectory)
+import System.Directory.OsPath (makeAbsolute)
 import System.Exit
 import System.IO (stderr)
 import System.OsPath (osp, OsPath, encodeUtf, splitDirectories, takeDirectory, (</>))
@@ -107,10 +107,9 @@ main = do
                     ++ "reliability"))
 
     -- create action context
-    curdir <- getCurrentDirectory
-    let stowDir   = maybe curdir id (clStowDir cl)
-        targetDir = maybe (takeDirectory stowDir) id (clTargetDir cl)
-        ac = ActionContext { acStowDir = stowDir, acTargetDir = targetDir }
+    stowDir <- makeAbsolute $ maybe [osp|.|] id (clStowDir cl)
+    targetDir <- makeAbsolute $  maybe (takeDirectory stowDir) id (clTargetDir cl)
+    let ac = ActionContext { acStowDir = stowDir, acTargetDir = targetDir }
 
     -- process
     let cmd :: (Monad m, MonadIO m, FsOps m) => AstowMonadT m ()
@@ -157,11 +156,12 @@ runCmd ac actionFunc files = do
     --
     -- If provided list is non-empty, use as is.
     -- Otherwise generate the list from the directory entries.
+    let sd = acStowDir ac
     files' <- if not $ null files then
             return files
         else do
-            d <- foListDirectory (acStowDir ac)
-                >>= filterM foDoesDirectoryExist
+            d <- foListDirectory sd
+                >>= filterM (\x -> foDoesDirectoryExist (sd </> x))
             return $ filter (not . (isPrefixOf [osp|.|])) d
 
     -- Scan RootedDirTree
@@ -180,10 +180,10 @@ runCmd ac actionFunc files = do
             [] -> abort  -- impossible: fn is a non-empty argument
             (root:sub) -> do
                 let targetPath = foldl (</>) (acTargetDir ac) sub
-                stowIsFile <- foDoesFileExist fn
-                stowIsDir  <- foDoesDirectoryExist fn
+                stowIsFile <- foDoesFileExist (sd </> fn)
+                stowIsDir  <- foDoesDirectoryExist (sd </> fn)
                 tr <- if stowIsFile || stowIsDir
-                    then readFromFs fn
+                    then readFromFs (sd </> fn)
                     else case sub of
                         -- Top-level package name not in stow: hard error.
                         [] -> do
