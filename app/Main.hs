@@ -41,25 +41,37 @@ data CmdLine = CmdLine {
     } deriving (Show)
 
 statusParser :: Parser Command
-statusParser = CmdStatus <$> many (argument osPathReader (metavar "DIRS..."))
+statusParser = CmdStatus <$> many (argument osPathReader
+            (metavar "DIRS..."
+             <> completer (bashCompleter "directory")))
 
 pushParser :: Parser Command
 pushParser = CmdPush
     <$> switch ( long "symlink"
         <> help "Symlink files into target instead of copying")
-    <*> many (argument osPathReader (metavar "DIRS..."))
+    <*> many (argument osPathReader
+            (metavar "DIRS..."
+             <> completer (bashCompleter "directory")))
 
 pullParser :: Parser Command
-pullParser = CmdPull <$> many (argument osPathReader (metavar "DIRS..."))
+pullParser = CmdPull <$> many (argument osPathReader
+            (metavar "DIRS..."
+             <> completer (bashCompleter "directory")))
 
 deleteParser :: Parser Command
-deleteParser = CmdDelete <$> many (argument osPathReader (metavar "DIRS..."))
+deleteParser = CmdDelete <$> many (argument osPathReader 
+            (metavar "DIRS..."
+             <> completer (bashCompleter "directory")))
 
 manifestParser :: Parser Command
-manifestParser = CmdManifest <$> many (argument osPathReader (metavar "DIRS..."))
+manifestParser = CmdManifest <$> many (argument osPathReader
+            (metavar "DIRS..."
+             <> completer (bashCompleter "directory")))
 
 diffParser :: Parser Command
-diffParser = CmdDiff <$> many (argument osPathReader (metavar "DIRS..."))
+diffParser = CmdDiff <$> many (argument osPathReader
+            (metavar "DIRS..."
+             <> completer (bashCompleter "directory")))
 
 cmdLineParser :: Parser CmdLine
 cmdLineParser = CmdLine
