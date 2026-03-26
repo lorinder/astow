@@ -19,12 +19,15 @@ module Actions (
 
 import Control.Monad
 import Control.Monad.IO.Class
+import Data.Monoid                          (All(..))
 import qualified Data.Text                  as T
 import qualified Data.Text.IO               as TIO
 import System.Process                       (rawSystem)
 
 import AstowMonadT
+import Diagnostic
 import DirTree
+import Fallible
 import FsOps
 import FileUtils (osPathToString, osPathToText)
 
@@ -167,8 +170,37 @@ delete :: (Monad m, FsOps m)
     => ActionContext
     -> [RootedDirTree ()]
     -> AstowMonadT m ()
-delete cx = visitFiles deleter
-    where   deleter :: (Monad m, FsOps m)
+delete cx tr = do
+    ok <- visitFiles verifier tr
+    if getAll ok then
+        visitFiles deleter tr
+    else do
+        tell1 $ Diagnostic
+            "Pre-deletion check"
+            (TextPayload "Some files don't match in stow and target")
+            Error
+        abort
+    where   verifier :: (Monad m, FsOps m)
+                => OsPath -> OsPath -> AstowMonadT m All
+            verifier srcP tgtP = do
+                let srcP' = acStowDir cx </> srcP
+                    tgtP' = acTargetDir cx </> tgtP
+                srcE <- foDoesFileExist srcP'
+                tgtE <- foDoesFileExist tgtP'
+                if srcE && tgtE then do
+                    same <- foFilesHaveSameContent srcP' tgtP'
+                    if same then
+                        return $ All True
+                    else do
+                        tell1 $ Diagnostic
+                            ("Checking " <> osPathToText srcP)
+                            (TextPayload ("Stow and target files have "
+                                <> "different content"))
+                            Info
+                        return $ All False
+                else
+                    return $ All True
+            deleter :: (Monad m, FsOps m)
                 => OsPath -> OsPath -> AstowMonadT m ()
             deleter _ tgtP = do
                 let tgtP' = acTargetDir cx </> tgtP
@@ -260,7 +292,7 @@ visitFilesSingle f rdt = do
 --
 -- Variant of 'visitFilesSingle' that takes a list of trees instead.
 visitFiles :: (Monoid a, Monad m)
-    => (OsPath -> OsPath -> m a)         -- ^ visitor (action)
+    => (OsPath -> OsPath -> m a)            -- ^ visitor (action)
     -> [RootedDirTree ()]                   -- ^ the trees
     -> m a
 visitFiles f trees = mconcat <$> mapM (visitFilesSingle f) trees 

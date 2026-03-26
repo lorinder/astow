@@ -246,6 +246,11 @@ deleteTests = do
         fa `shouldBe` Completed True ()
         finalFs `shouldBe` fsStowPushedN
 
+    it "no files are deleted when the pre-deletion check fails" $ do
+        let (fa, finalFs) = runFake fsStowDifferN (delete cx [srtNested])
+        fa `shouldBe` Aborted
+        finalFs `shouldBe` fsStowDifferN
+
 -- ---------------------------------------------------------------------------
 -- diff
 
