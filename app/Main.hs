@@ -117,8 +117,8 @@ main = do
             ( fullDesc
                 <> header "astow - copy based alternative to stow"
                 <> progDesc ("Tool to manage a union of file system trees. "
-                    ++ "Unlike stow, files are copied by default for"
-                    ++ "reliability"))
+                    ++ "Files are copied instead of symlinked as "
+                    ++ "in other, similar tools."))
 
     -- create action context
     stowDir <- makeAbsolute $ maybe [osp|.|] id (clStowDir cl)
